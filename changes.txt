@@ -1,0 +1,4828 @@
+commit 853c0a0cbfceb5e02fe02eafbe1648037d7d18ee
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jul 5 14:32:24 2023 +0200
+
+    fixed handling of epsilons
+
+diff --git a/main.py b/main.py
+index f01e44c..d27d441 100644
+--- a/main.py
++++ b/main.py
+@@ -13,8 +13,8 @@ tests = [
+     # ("¬(⊤ ∨ x)"),
+     # ("¬(⊥ ∧ x)"),
+     # ("⊤ U[0, 5] ⊥"),
+-    ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+-    # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++    # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++    ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+     # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+     # ("(a U[1, 2] b) U[3, 5] c"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+diff --git a/measures.py b/measures.py
+index fcc88cd..5fff17d 100644
+--- a/measures.py
++++ b/measures.py
+@@ -36,8 +36,8 @@ def measured(timeseries_csv):
+     # # assert that epsilon is the same for all instances of a signal
+     # if len(set(df['epsilon'])) != 1:
+     #     raise ValueError('Epsilon must be the same for all instances of a signal')
+-    # map signal to epsilon
+-    epsilon = {signal: df['epsilon'][0] for signal in set(df['signal'])}
++    # map signal to epsilon so that epsilon[signal] = epsilon
++    epsilon = {signal: df[df['signal'] == signal]['epsilon'].iloc[0] for signal in set(df['signal'])}
+     # map signal to time to delta so that deltas[signal][time] = delta
+     deltas = {signal: {} for signal in set(df['signal'])}
+     for index, row in df.iterrows():
+
+commit 6d102224f6a57fb25037ca0ec865910b95db0ced
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jul 5 14:14:07 2023 +0200
+
+    almost working tseitin, need to fix delta epsilon - close #22
+
+diff --git a/compiler.py b/compiler.py
+index 0177ec5..bd5ce04 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -244,7 +244,7 @@ def test_stl_to_smtlib():
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+-        # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++        ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+         # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+         # ("(a U[1, 2] b) U[3, 5] c"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+@@ -264,13 +264,8 @@ def test_stl_to_smtlib():
+         smtlib = stl_to_smtlib(stl)
+         print(stl)
+         print(smtlib)
+-        # transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+-        # # print(f'{smtlib} turns into {transformed}\n')
+-        
+-        # print(transformed)
+-        
+-        # print(tseitin.cnf_to_smt(transformed))
+-        # tseitin.evaluate(transformed, mapping)
++        formula = tseitin.tseitin_to_smt(smtlib)
++        print(formula)
+ 
+         print()
+ 
+diff --git a/data/timeseries.csv b/data/timeseries.csv
+index c7ef9c6..e6bbae1 100644
+--- a/data/timeseries.csv
++++ b/data/timeseries.csv
+@@ -7,19 +7,19 @@ x,4,0,0,3
+ x,5,0,0,3
+ x,6,0,0,3
+ x,7,0,0,3
+-y,0,0,0,0
+-y,1,0,0,0
+-y,2,0,0,0
+-y,3,0,0,0
+-y,4,0,0,0
+-y,5,0,0,0
+-y,6,0,0,0
+-y,7,0,0,0
+-z,0,0,0,2
+-z,1,0,0,2
+-z,2,0,0,2
+-z,3,0,0,2
+-z,4,0,0,2
+-z,5,0,0,2
+-z,6,0,0,2
+-z,7,0,0,2
+\ No newline at end of file
++y,0,0,0,3
++y,1,0,0,3
++y,2,0,0,3
++y,3,0,0,3
++y,4,0,0,3
++y,5,0,0,3
++y,6,0,0,3
++y,7,0,0,3
++z,0,0.5,0.5,2
++z,1,0.5,0.5,2
++z,2,0.5,0.5,2
++z,3,0.5,0.5,2
++z,4,0.5,0.5,2
++z,5,0.5,0.5,2
++z,6,0.5,0.5,2
++z,7,0.5,0.5,2
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index 415e219..f01e44c 100644
+--- a/main.py
++++ b/main.py
+@@ -35,8 +35,9 @@ for stl in tests:
+     print(stl)
+     smtlib = compiler.stl_to_smtlib(stl)
+     print(smtlib)
+-    formula = tseitin.tseitin_to_smt(smtlib)
+-
++    phi, base = tseitin.tseitin_to_smt(smtlib)
++    formula = f'(and {base} {phi})'
++    not_formula = f'(and {base} (not {phi}))'
+     measures.all_clauses(formula, 'smt/clauses.smt2')
+ 
+     # use z3 to check satisfiability
+@@ -49,11 +50,10 @@ for stl in tests:
+         print(s1.model())
+     
+     print()
+-    not_formula = tseitin.tseitin_to_smt('(not ' + smtlib + ')')
+     measures.all_clauses(not_formula, 'smt/not_clauses.smt2')
+-    print('s2', not_formula)
+     s2 = z3.Solver()
+     s2.from_file('smt/not_clauses.smt2')
++    print('s2', not_formula)
+     print(s2.check())
+     if s2.check() == z3.sat:
+         print(s2.model())
+diff --git a/smt/clauses.smt2 b/smt/clauses.smt2
+index cb85f67..9b08cb0 100644
+--- a/smt/clauses.smt2
++++ b/smt/clauses.smt2
+@@ -1,194 +1,167 @@
+ (set-logic QF_LRA)
+ (set-option :print-success false)
++(declare-const ox Real)
++(assert (and (<= (- 0.0) ox) (<= ox 0.0)))
++(declare-const x0 Real)
++(declare-const ex0 Real)
++(assert (and (<= (- 0.0) ex0) (<= ex0 0.0)))
++(declare-const mx0 Real)
++(assert (= mx0 3))
++(assert (= (+ x0 ox ex0) mx0))
++(declare-const x1 Real)
++(declare-const ex1 Real)
++(assert (and (<= (- 0.0) ex1) (<= ex1 0.0)))
++(declare-const mx1 Real)
++(assert (= mx1 3))
++(assert (= (+ x1 ox ex1) mx1))
++(declare-const x2 Real)
++(declare-const ex2 Real)
++(assert (and (<= (- 0.0) ex2) (<= ex2 0.0)))
++(declare-const mx2 Real)
++(assert (= mx2 3))
++(assert (= (+ x2 ox ex2) mx2))
++(declare-const x3 Real)
++(declare-const ex3 Real)
++(assert (and (<= (- 0.0) ex3) (<= ex3 0.0)))
++(declare-const mx3 Real)
++(assert (= mx3 3))
++(assert (= (+ x3 ox ex3) mx3))
++(declare-const x4 Real)
++(declare-const ex4 Real)
++(assert (and (<= (- 0.0) ex4) (<= ex4 0.0)))
++(declare-const mx4 Real)
++(assert (= mx4 3))
++(assert (= (+ x4 ox ex4) mx4))
++(declare-const x5 Real)
++(declare-const ex5 Real)
++(assert (and (<= (- 0.0) ex5) (<= ex5 0.0)))
++(declare-const mx5 Real)
++(assert (= mx5 3))
++(assert (= (+ x5 ox ex5) mx5))
++(declare-const x6 Real)
++(declare-const ex6 Real)
++(assert (and (<= (- 0.0) ex6) (<= ex6 0.0)))
++(declare-const mx6 Real)
++(assert (= mx6 3))
++(assert (= (+ x6 ox ex6) mx6))
++(declare-const x7 Real)
++(declare-const ex7 Real)
++(assert (and (<= (- 0.0) ex7) (<= ex7 0.0)))
++(declare-const mx7 Real)
++(assert (= mx7 3))
++(assert (= (+ x7 ox ex7) mx7))
+ (declare-const oy Real)
+-(assert (and (<= (- 0) oy) (<= oy 0)))
++(assert (and (<= (- 0.0) oy) (<= oy 0.0)))
+ (declare-const y0 Real)
+ (declare-const ey0 Real)
+-(assert (and (<= (- 0) ey0) (<= ey0 0)))
++(assert (and (<= (- 0.0) ey0) (<= ey0 0.0)))
+ (declare-const my0 Real)
+-(assert (= my0 0))
++(assert (= my0 3))
+ (assert (= (+ y0 oy ey0) my0))
+ (declare-const y1 Real)
+ (declare-const ey1 Real)
+-(assert (and (<= (- 0) ey1) (<= ey1 0)))
++(assert (and (<= (- 0.0) ey1) (<= ey1 0.0)))
+ (declare-const my1 Real)
+-(assert (= my1 0))
++(assert (= my1 3))
+ (assert (= (+ y1 oy ey1) my1))
+ (declare-const y2 Real)
+ (declare-const ey2 Real)
+-(assert (and (<= (- 0) ey2) (<= ey2 0)))
++(assert (and (<= (- 0.0) ey2) (<= ey2 0.0)))
+ (declare-const my2 Real)
+-(assert (= my2 0))
++(assert (= my2 3))
+ (assert (= (+ y2 oy ey2) my2))
+ (declare-const y3 Real)
+ (declare-const ey3 Real)
+-(assert (and (<= (- 0) ey3) (<= ey3 0)))
++(assert (and (<= (- 0.0) ey3) (<= ey3 0.0)))
+ (declare-const my3 Real)
+-(assert (= my3 0))
++(assert (= my3 3))
+ (assert (= (+ y3 oy ey3) my3))
+ (declare-const y4 Real)
+ (declare-const ey4 Real)
+-(assert (and (<= (- 0) ey4) (<= ey4 0)))
++(assert (and (<= (- 0.0) ey4) (<= ey4 0.0)))
+ (declare-const my4 Real)
+-(assert (= my4 0))
++(assert (= my4 3))
+ (assert (= (+ y4 oy ey4) my4))
+ (declare-const y5 Real)
+ (declare-const ey5 Real)
+-(assert (and (<= (- 0) ey5) (<= ey5 0)))
++(assert (and (<= (- 0.0) ey5) (<= ey5 0.0)))
+ (declare-const my5 Real)
+-(assert (= my5 0))
++(assert (= my5 3))
+ (assert (= (+ y5 oy ey5) my5))
+ (declare-const y6 Real)
+ (declare-const ey6 Real)
+-(assert (and (<= (- 0) ey6) (<= ey6 0)))
++(assert (and (<= (- 0.0) ey6) (<= ey6 0.0)))
+ (declare-const my6 Real)
+-(assert (= my6 0))
++(assert (= my6 3))
+ (assert (= (+ y6 oy ey6) my6))
+ (declare-const y7 Real)
+ (declare-const ey7 Real)
+-(assert (and (<= (- 0) ey7) (<= ey7 0)))
++(assert (and (<= (- 0.0) ey7) (<= ey7 0.0)))
+ (declare-const my7 Real)
+-(assert (= my7 0))
++(assert (= my7 3))
+ (assert (= (+ y7 oy ey7) my7))
+ (declare-const oz Real)
+-(assert (and (<= (- 0) oz) (<= oz 0)))
++(assert (and (<= (- 0.0) oz) (<= oz 0.0)))
+ (declare-const z0 Real)
+ (declare-const ez0 Real)
+-(assert (and (<= (- 0) ez0) (<= ez0 0)))
++(assert (and (<= (- 0.5) ez0) (<= ez0 0.5)))
+ (declare-const mz0 Real)
+ (assert (= mz0 2))
+ (assert (= (+ z0 oz ez0) mz0))
+ (declare-const z1 Real)
+ (declare-const ez1 Real)
+-(assert (and (<= (- 0) ez1) (<= ez1 0)))
++(assert (and (<= (- 0.5) ez1) (<= ez1 0.5)))
+ (declare-const mz1 Real)
+ (assert (= mz1 2))
+ (assert (= (+ z1 oz ez1) mz1))
+ (declare-const z2 Real)
+ (declare-const ez2 Real)
+-(assert (and (<= (- 0) ez2) (<= ez2 0)))
++(assert (and (<= (- 0.5) ez2) (<= ez2 0.5)))
+ (declare-const mz2 Real)
+ (assert (= mz2 2))
+ (assert (= (+ z2 oz ez2) mz2))
+ (declare-const z3 Real)
+ (declare-const ez3 Real)
+-(assert (and (<= (- 0) ez3) (<= ez3 0)))
++(assert (and (<= (- 0.5) ez3) (<= ez3 0.5)))
+ (declare-const mz3 Real)
+ (assert (= mz3 2))
+ (assert (= (+ z3 oz ez3) mz3))
+ (declare-const z4 Real)
+ (declare-const ez4 Real)
+-(assert (and (<= (- 0) ez4) (<= ez4 0)))
++(assert (and (<= (- 0.5) ez4) (<= ez4 0.5)))
+ (declare-const mz4 Real)
+ (assert (= mz4 2))
+ (assert (= (+ z4 oz ez4) mz4))
+ (declare-const z5 Real)
+ (declare-const ez5 Real)
+-(assert (and (<= (- 0) ez5) (<= ez5 0)))
++(assert (and (<= (- 0.5) ez5) (<= ez5 0.5)))
+ (declare-const mz5 Real)
+ (assert (= mz5 2))
+ (assert (= (+ z5 oz ez5) mz5))
+ (declare-const z6 Real)
+ (declare-const ez6 Real)
+-(assert (and (<= (- 0) ez6) (<= ez6 0)))
++(assert (and (<= (- 0.5) ez6) (<= ez6 0.5)))
+ (declare-const mz6 Real)
+ (assert (= mz6 2))
+ (assert (= (+ z6 oz ez6) mz6))
+ (declare-const z7 Real)
+ (declare-const ez7 Real)
+-(assert (and (<= (- 0) ez7) (<= ez7 0)))
++(assert (and (<= (- 0.5) ez7) (<= ez7 0.5)))
+ (declare-const mz7 Real)
+ (assert (= mz7 2))
+ (assert (= (+ z7 oz ez7) mz7))
+-(declare-const ox Real)
+-(assert (and (<= (- 0) ox) (<= ox 0)))
+-(declare-const x0 Real)
+-(declare-const ex0 Real)
+-(assert (and (<= (- 0) ex0) (<= ex0 0)))
+-(declare-const mx0 Real)
+-(assert (= mx0 3))
+-(assert (= (+ x0 ox ex0) mx0))
+-(declare-const x1 Real)
+-(declare-const ex1 Real)
+-(assert (and (<= (- 0) ex1) (<= ex1 0)))
+-(declare-const mx1 Real)
+-(assert (= mx1 3))
+-(assert (= (+ x1 ox ex1) mx1))
+-(declare-const x2 Real)
+-(declare-const ex2 Real)
+-(assert (and (<= (- 0) ex2) (<= ex2 0)))
+-(declare-const mx2 Real)
+-(assert (= mx2 3))
+-(assert (= (+ x2 ox ex2) mx2))
+-(declare-const x3 Real)
+-(declare-const ex3 Real)
+-(assert (and (<= (- 0) ex3) (<= ex3 0)))
+-(declare-const mx3 Real)
+-(assert (= mx3 3))
+-(assert (= (+ x3 ox ex3) mx3))
+-(declare-const x4 Real)
+-(declare-const ex4 Real)
+-(assert (and (<= (- 0) ex4) (<= ex4 0)))
+-(declare-const mx4 Real)
+-(assert (= mx4 3))
+-(assert (= (+ x4 ox ex4) mx4))
+-(declare-const x5 Real)
+-(declare-const ex5 Real)
+-(assert (and (<= (- 0) ex5) (<= ex5 0)))
+-(declare-const mx5 Real)
+-(assert (= mx5 3))
+-(assert (= (+ x5 ox ex5) mx5))
+-(declare-const x6 Real)
+-(declare-const ex6 Real)
+-(assert (and (<= (- 0) ex6) (<= ex6 0)))
+-(declare-const mx6 Real)
+-(assert (= mx6 3))
+-(assert (= (+ x6 ox ex6) mx6))
+-(declare-const x7 Real)
+-(declare-const ex7 Real)
+-(assert (and (<= (- 0) ex7) (<= ex7 0)))
+-(declare-const mx7 Real)
+-(assert (= mx7 3))
+-(assert (= (+ x7 ox ex7) mx7))
+-(declare-const p6 Bool)
+-(declare-const p14 Bool)
+-(declare-const p33 Bool)
+-(declare-const p16 Bool)
+-(declare-const p20 Bool)
+-(declare-const p12 Bool)
+-(declare-const p29 Bool)
+-(declare-const p19 Bool)
+-(declare-const p36 Bool)
+-(declare-const p27 Bool)
+-(declare-const p25 Bool)
+-(declare-const p15 Bool)
+-(declare-const p40 Bool)
+-(declare-const p5 Bool)
+-(declare-const p28 Bool)
+-(declare-const p23 Bool)
+-(declare-const p35 Bool)
+ (declare-const p1 Bool)
+-(declare-const p34 Bool)
+-(declare-const p21 Bool)
+-(declare-const p18 Bool)
++(declare-const p8 Bool)
+ (declare-const p9 Bool)
+-(declare-const p31 Bool)
+-(declare-const p30 Bool)
+-(declare-const p24 Bool)
+-(declare-const p7 Bool)
++(declare-const p3 Bool)
++(declare-const p10 Bool)
++(declare-const p12 Bool)
+ (declare-const p2 Bool)
+-(declare-const p13 Bool)
+-(declare-const p26 Bool)
+-(declare-const p32 Bool)
++(declare-const p5 Bool)
+ (declare-const p11 Bool)
+-(declare-const p8 Bool)
+-(declare-const p17 Bool)
+-(declare-const p22 Bool)
+ (declare-const p4 Bool)
+-(declare-const p3 Bool)
+-(declare-const p38 Bool)
+-(declare-const p37 Bool)
+-(declare-const p10 Bool)
+-(declare-const p39 Bool)
+-(assert (and (or (not p6) p4) (or (not p6) p5) (or p6 (not p4) (not p5)) (or (not p10) p7) (or (not p10) p8) (or (not p10) p9) (or p10 (not p7) (not p8) (not p9)) (or (not p6) p11) (or (not p10) p11) (or (not p11) p6 p10) (or (not p12) p1) (or (not p12) p2) (or (not p12) p3) (or (not p12) p11) (or p12 (not p1) (not p2) (not p3) (not p11)) (or (not p19) p17) (or (not p19) p18) (or p19 (not p17) (not p18)) (or (not p23) p20) (or (not p23) p21) (or (not p23) p22) (or p23 (not p20) (not p21) (not p22)) (or (not p19) p24) (or (not p23) p24) (or (not p24) p19 p23) (or (not p25) p13) (or (not p25) p14) (or (not p25) p15) (or (not p25) p16) (or (not p25) p24) (or p25 (not p13) (not p14) (not p15) (not p16) (not p24)) (or (not p33) p31) (or (not p33) p32) (or p33 (not p31) (not p32)) (or (not p37) p34) (or (not p37) p35) (or (not p37) p36) (or p37 (not p34) (not p35) (not p36)) (or (not p33) p38) (or (not p37) p38) (or (not p38) p33 p37) (or (not p39) p26) (or (not p39) p27) (or (not p39) p28) (or (not p39) p29) (or (not p39) p30) (or (not p39) p38) (or p39 (not p26) (not p27) (not p28) (not p29) (not p30) (not p38)) (or (not p12) p40) (or (not p25) p40) (or (not p39) p40) (or (not p40) p12 p25 p39) (or p40) (or (and (>= x0 3) (>= x1 3) (>= x2 3) (or (and (>= z3 2) (>= y4 5)) (and (>= z3 2) (>= z4 2) (>= y5 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (or (and (>= z4 2) (>= y5 5)) (and (>= z4 2) (>= z5 2) (>= y6 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (>= x4 3) (or (and (>= z5 2) (>= y6 5)) (and (>= z5 2) (>= z6 2) (>= y7 5)))))))
++(declare-const p7 Bool)
++(declare-const p13 Bool)
++(declare-const p6 Bool)
++(assert (and (and (or p3 (not p1) (not p2)) (or (not p3) p1) (or (not p3) p2) (or p7 (not p4) (not p5) (not p6)) (or (not p7) p4) (or (not p7) p5) (or (not p7) p6) (or p12 (not p8) (not p9) (not p10) (not p11)) (or (not p12) p8) (or (not p12) p9) (or (not p12) p10) (or (not p12) p11) (or p13 (not p3)) (or p13 (not p7)) (or p13 (not p12)) (or (not p13) p3 p7 p12) (= p1 (>= x0 3)) (= p2 (>= z1 2)) (= p3 (and p1 p2)) (= p4 (>= x0 3)) (= p5 (>= x1 3)) (= p6 (>= z2 2)) (= p7 (and p4 p5 p6)) (= p8 (>= x0 3)) (= p9 (>= x1 3)) (= p10 (>= x2 3)) (= p11 (>= z3 2)) (= p12 (and p8 p9 p10 p11)) (= p13 (or p3 p7 p12))) p13))
+ (check-sat)
+diff --git a/smt/not_clauses.smt2 b/smt/not_clauses.smt2
+index a8d44ee..fc9a29b 100644
+--- a/smt/not_clauses.smt2
++++ b/smt/not_clauses.smt2
+@@ -1,195 +1,167 @@
+ (set-logic QF_LRA)
+ (set-option :print-success false)
++(declare-const ox Real)
++(assert (and (<= (- 0.0) ox) (<= ox 0.0)))
++(declare-const x0 Real)
++(declare-const ex0 Real)
++(assert (and (<= (- 0.0) ex0) (<= ex0 0.0)))
++(declare-const mx0 Real)
++(assert (= mx0 3))
++(assert (= (+ x0 ox ex0) mx0))
++(declare-const x1 Real)
++(declare-const ex1 Real)
++(assert (and (<= (- 0.0) ex1) (<= ex1 0.0)))
++(declare-const mx1 Real)
++(assert (= mx1 3))
++(assert (= (+ x1 ox ex1) mx1))
++(declare-const x2 Real)
++(declare-const ex2 Real)
++(assert (and (<= (- 0.0) ex2) (<= ex2 0.0)))
++(declare-const mx2 Real)
++(assert (= mx2 3))
++(assert (= (+ x2 ox ex2) mx2))
++(declare-const x3 Real)
++(declare-const ex3 Real)
++(assert (and (<= (- 0.0) ex3) (<= ex3 0.0)))
++(declare-const mx3 Real)
++(assert (= mx3 3))
++(assert (= (+ x3 ox ex3) mx3))
++(declare-const x4 Real)
++(declare-const ex4 Real)
++(assert (and (<= (- 0.0) ex4) (<= ex4 0.0)))
++(declare-const mx4 Real)
++(assert (= mx4 3))
++(assert (= (+ x4 ox ex4) mx4))
++(declare-const x5 Real)
++(declare-const ex5 Real)
++(assert (and (<= (- 0.0) ex5) (<= ex5 0.0)))
++(declare-const mx5 Real)
++(assert (= mx5 3))
++(assert (= (+ x5 ox ex5) mx5))
++(declare-const x6 Real)
++(declare-const ex6 Real)
++(assert (and (<= (- 0.0) ex6) (<= ex6 0.0)))
++(declare-const mx6 Real)
++(assert (= mx6 3))
++(assert (= (+ x6 ox ex6) mx6))
++(declare-const x7 Real)
++(declare-const ex7 Real)
++(assert (and (<= (- 0.0) ex7) (<= ex7 0.0)))
++(declare-const mx7 Real)
++(assert (= mx7 3))
++(assert (= (+ x7 ox ex7) mx7))
+ (declare-const oy Real)
+-(assert (and (<= (- 0) oy) (<= oy 0)))
++(assert (and (<= (- 0.0) oy) (<= oy 0.0)))
+ (declare-const y0 Real)
+ (declare-const ey0 Real)
+-(assert (and (<= (- 0) ey0) (<= ey0 0)))
++(assert (and (<= (- 0.0) ey0) (<= ey0 0.0)))
+ (declare-const my0 Real)
+-(assert (= my0 0))
++(assert (= my0 3))
+ (assert (= (+ y0 oy ey0) my0))
+ (declare-const y1 Real)
+ (declare-const ey1 Real)
+-(assert (and (<= (- 0) ey1) (<= ey1 0)))
++(assert (and (<= (- 0.0) ey1) (<= ey1 0.0)))
+ (declare-const my1 Real)
+-(assert (= my1 0))
++(assert (= my1 3))
+ (assert (= (+ y1 oy ey1) my1))
+ (declare-const y2 Real)
+ (declare-const ey2 Real)
+-(assert (and (<= (- 0) ey2) (<= ey2 0)))
++(assert (and (<= (- 0.0) ey2) (<= ey2 0.0)))
+ (declare-const my2 Real)
+-(assert (= my2 0))
++(assert (= my2 3))
+ (assert (= (+ y2 oy ey2) my2))
+ (declare-const y3 Real)
+ (declare-const ey3 Real)
+-(assert (and (<= (- 0) ey3) (<= ey3 0)))
++(assert (and (<= (- 0.0) ey3) (<= ey3 0.0)))
+ (declare-const my3 Real)
+-(assert (= my3 0))
++(assert (= my3 3))
+ (assert (= (+ y3 oy ey3) my3))
+ (declare-const y4 Real)
+ (declare-const ey4 Real)
+-(assert (and (<= (- 0) ey4) (<= ey4 0)))
++(assert (and (<= (- 0.0) ey4) (<= ey4 0.0)))
+ (declare-const my4 Real)
+-(assert (= my4 0))
++(assert (= my4 3))
+ (assert (= (+ y4 oy ey4) my4))
+ (declare-const y5 Real)
+ (declare-const ey5 Real)
+-(assert (and (<= (- 0) ey5) (<= ey5 0)))
++(assert (and (<= (- 0.0) ey5) (<= ey5 0.0)))
+ (declare-const my5 Real)
+-(assert (= my5 0))
++(assert (= my5 3))
+ (assert (= (+ y5 oy ey5) my5))
+ (declare-const y6 Real)
+ (declare-const ey6 Real)
+-(assert (and (<= (- 0) ey6) (<= ey6 0)))
++(assert (and (<= (- 0.0) ey6) (<= ey6 0.0)))
+ (declare-const my6 Real)
+-(assert (= my6 0))
++(assert (= my6 3))
+ (assert (= (+ y6 oy ey6) my6))
+ (declare-const y7 Real)
+ (declare-const ey7 Real)
+-(assert (and (<= (- 0) ey7) (<= ey7 0)))
++(assert (and (<= (- 0.0) ey7) (<= ey7 0.0)))
+ (declare-const my7 Real)
+-(assert (= my7 0))
++(assert (= my7 3))
+ (assert (= (+ y7 oy ey7) my7))
+ (declare-const oz Real)
+-(assert (and (<= (- 0) oz) (<= oz 0)))
++(assert (and (<= (- 0.0) oz) (<= oz 0.0)))
+ (declare-const z0 Real)
+ (declare-const ez0 Real)
+-(assert (and (<= (- 0) ez0) (<= ez0 0)))
++(assert (and (<= (- 0.5) ez0) (<= ez0 0.5)))
+ (declare-const mz0 Real)
+ (assert (= mz0 2))
+ (assert (= (+ z0 oz ez0) mz0))
+ (declare-const z1 Real)
+ (declare-const ez1 Real)
+-(assert (and (<= (- 0) ez1) (<= ez1 0)))
++(assert (and (<= (- 0.5) ez1) (<= ez1 0.5)))
+ (declare-const mz1 Real)
+ (assert (= mz1 2))
+ (assert (= (+ z1 oz ez1) mz1))
+ (declare-const z2 Real)
+ (declare-const ez2 Real)
+-(assert (and (<= (- 0) ez2) (<= ez2 0)))
++(assert (and (<= (- 0.5) ez2) (<= ez2 0.5)))
+ (declare-const mz2 Real)
+ (assert (= mz2 2))
+ (assert (= (+ z2 oz ez2) mz2))
+ (declare-const z3 Real)
+ (declare-const ez3 Real)
+-(assert (and (<= (- 0) ez3) (<= ez3 0)))
++(assert (and (<= (- 0.5) ez3) (<= ez3 0.5)))
+ (declare-const mz3 Real)
+ (assert (= mz3 2))
+ (assert (= (+ z3 oz ez3) mz3))
+ (declare-const z4 Real)
+ (declare-const ez4 Real)
+-(assert (and (<= (- 0) ez4) (<= ez4 0)))
++(assert (and (<= (- 0.5) ez4) (<= ez4 0.5)))
+ (declare-const mz4 Real)
+ (assert (= mz4 2))
+ (assert (= (+ z4 oz ez4) mz4))
+ (declare-const z5 Real)
+ (declare-const ez5 Real)
+-(assert (and (<= (- 0) ez5) (<= ez5 0)))
++(assert (and (<= (- 0.5) ez5) (<= ez5 0.5)))
+ (declare-const mz5 Real)
+ (assert (= mz5 2))
+ (assert (= (+ z5 oz ez5) mz5))
+ (declare-const z6 Real)
+ (declare-const ez6 Real)
+-(assert (and (<= (- 0) ez6) (<= ez6 0)))
++(assert (and (<= (- 0.5) ez6) (<= ez6 0.5)))
+ (declare-const mz6 Real)
+ (assert (= mz6 2))
+ (assert (= (+ z6 oz ez6) mz6))
+ (declare-const z7 Real)
+ (declare-const ez7 Real)
+-(assert (and (<= (- 0) ez7) (<= ez7 0)))
++(assert (and (<= (- 0.5) ez7) (<= ez7 0.5)))
+ (declare-const mz7 Real)
+ (assert (= mz7 2))
+ (assert (= (+ z7 oz ez7) mz7))
+-(declare-const ox Real)
+-(assert (and (<= (- 0) ox) (<= ox 0)))
+-(declare-const x0 Real)
+-(declare-const ex0 Real)
+-(assert (and (<= (- 0) ex0) (<= ex0 0)))
+-(declare-const mx0 Real)
+-(assert (= mx0 3))
+-(assert (= (+ x0 ox ex0) mx0))
+-(declare-const x1 Real)
+-(declare-const ex1 Real)
+-(assert (and (<= (- 0) ex1) (<= ex1 0)))
+-(declare-const mx1 Real)
+-(assert (= mx1 3))
+-(assert (= (+ x1 ox ex1) mx1))
+-(declare-const x2 Real)
+-(declare-const ex2 Real)
+-(assert (and (<= (- 0) ex2) (<= ex2 0)))
+-(declare-const mx2 Real)
+-(assert (= mx2 3))
+-(assert (= (+ x2 ox ex2) mx2))
+-(declare-const x3 Real)
+-(declare-const ex3 Real)
+-(assert (and (<= (- 0) ex3) (<= ex3 0)))
+-(declare-const mx3 Real)
+-(assert (= mx3 3))
+-(assert (= (+ x3 ox ex3) mx3))
+-(declare-const x4 Real)
+-(declare-const ex4 Real)
+-(assert (and (<= (- 0) ex4) (<= ex4 0)))
+-(declare-const mx4 Real)
+-(assert (= mx4 3))
+-(assert (= (+ x4 ox ex4) mx4))
+-(declare-const x5 Real)
+-(declare-const ex5 Real)
+-(assert (and (<= (- 0) ex5) (<= ex5 0)))
+-(declare-const mx5 Real)
+-(assert (= mx5 3))
+-(assert (= (+ x5 ox ex5) mx5))
+-(declare-const x6 Real)
+-(declare-const ex6 Real)
+-(assert (and (<= (- 0) ex6) (<= ex6 0)))
+-(declare-const mx6 Real)
+-(assert (= mx6 3))
+-(assert (= (+ x6 ox ex6) mx6))
+-(declare-const x7 Real)
+-(declare-const ex7 Real)
+-(assert (and (<= (- 0) ex7) (<= ex7 0)))
+-(declare-const mx7 Real)
+-(assert (= mx7 3))
+-(assert (= (+ x7 ox ex7) mx7))
+-(declare-const p6 Bool)
+-(declare-const p14 Bool)
+-(declare-const p33 Bool)
+-(declare-const p16 Bool)
+-(declare-const p20 Bool)
+-(declare-const p12 Bool)
+-(declare-const p29 Bool)
+-(declare-const p19 Bool)
+-(declare-const p36 Bool)
+-(declare-const p27 Bool)
+-(declare-const p25 Bool)
+-(declare-const p15 Bool)
+-(declare-const p40 Bool)
+-(declare-const p5 Bool)
+-(declare-const p41 Bool)
+-(declare-const p28 Bool)
+-(declare-const p23 Bool)
+-(declare-const p35 Bool)
+ (declare-const p1 Bool)
+-(declare-const p34 Bool)
+-(declare-const p21 Bool)
+-(declare-const p18 Bool)
++(declare-const p8 Bool)
+ (declare-const p9 Bool)
+-(declare-const p31 Bool)
+-(declare-const p30 Bool)
+-(declare-const p24 Bool)
+-(declare-const p7 Bool)
++(declare-const p3 Bool)
++(declare-const p10 Bool)
++(declare-const p12 Bool)
+ (declare-const p2 Bool)
+-(declare-const p13 Bool)
+-(declare-const p26 Bool)
+-(declare-const p32 Bool)
++(declare-const p5 Bool)
+ (declare-const p11 Bool)
+-(declare-const p8 Bool)
+-(declare-const p17 Bool)
+-(declare-const p22 Bool)
+ (declare-const p4 Bool)
+-(declare-const p3 Bool)
+-(declare-const p38 Bool)
+-(declare-const p37 Bool)
+-(declare-const p10 Bool)
+-(declare-const p39 Bool)
+-(assert (and (or (not p6) p4) (or (not p6) p5) (or p6 (not p4) (not p5)) (or (not p10) p7) (or (not p10) p8) (or (not p10) p9) (or p10 (not p7) (not p8) (not p9)) (or (not p6) p11) (or (not p10) p11) (or (not p11) p6 p10) (or (not p12) p1) (or (not p12) p2) (or (not p12) p3) (or (not p12) p11) (or p12 (not p1) (not p2) (not p3) (not p11)) (or (not p19) p17) (or (not p19) p18) (or p19 (not p17) (not p18)) (or (not p23) p20) (or (not p23) p21) (or (not p23) p22) (or p23 (not p20) (not p21) (not p22)) (or (not p19) p24) (or (not p23) p24) (or (not p24) p19 p23) (or (not p25) p13) (or (not p25) p14) (or (not p25) p15) (or (not p25) p16) (or (not p25) p24) (or p25 (not p13) (not p14) (not p15) (not p16) (not p24)) (or (not p33) p31) (or (not p33) p32) (or p33 (not p31) (not p32)) (or (not p37) p34) (or (not p37) p35) (or (not p37) p36) (or p37 (not p34) (not p35) (not p36)) (or (not p33) p38) (or (not p37) p38) (or (not p38) p33 p37) (or (not p39) p26) (or (not p39) p27) (or (not p39) p28) (or (not p39) p29) (or (not p39) p30) (or (not p39) p38) (or p39 (not p26) (not p27) (not p28) (not p29) (not p30) (not p38)) (or (not p12) p40) (or (not p25) p40) (or (not p39) p40) (or (not p40) p12 p25 p39) (or p41 p40) (or (not p41) (not p40)) (or p41) (not (or (and (>= x0 3) (>= x1 3) (>= x2 3) (or (and (>= z3 2) (>= y4 5)) (and (>= z3 2) (>= z4 2) (>= y5 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (or (and (>= z4 2) (>= y5 5)) (and (>= z4 2) (>= z5 2) (>= y6 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (>= x4 3) (or (and (>= z5 2) (>= y6 5)) (and (>= z5 2) (>= z6 2) (>= y7 5))))))))
++(declare-const p7 Bool)
++(declare-const p13 Bool)
++(declare-const p6 Bool)
++(assert (and (and (or p3 (not p1) (not p2)) (or (not p3) p1) (or (not p3) p2) (or p7 (not p4) (not p5) (not p6)) (or (not p7) p4) (or (not p7) p5) (or (not p7) p6) (or p12 (not p8) (not p9) (not p10) (not p11)) (or (not p12) p8) (or (not p12) p9) (or (not p12) p10) (or (not p12) p11) (or p13 (not p3)) (or p13 (not p7)) (or p13 (not p12)) (or (not p13) p3 p7 p12) (= p1 (>= x0 3)) (= p2 (>= z1 2)) (= p3 (and p1 p2)) (= p4 (>= x0 3)) (= p5 (>= x1 3)) (= p6 (>= z2 2)) (= p7 (and p4 p5 p6)) (= p8 (>= x0 3)) (= p9 (>= x1 3)) (= p10 (>= x2 3)) (= p11 (>= z3 2)) (= p12 (and p8 p9 p10 p11)) (= p13 (or p3 p7 p12))) (not p13)))
+ (check-sat)
+diff --git a/tseitin.py b/tseitin.py
+index 06d2253..db9d84e 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -49,19 +49,19 @@ def tseitin_transformation(formula, mapping, counter):
+     new_variable = f'p{counter}'
+     mapping[new_variable] = new_formula
+ 
+-    # not A turns into (A or p) and (not A or not p)
++    # p = not A turns into (p or A) and (not p or not A)
+     if operation == 'not':
+         mapping['clauses'].append([new_variable, new_operands[0]])
+         mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
+-    # A and B turns into (not A or not B or p) and (A or not p) and (B or not p)
++    # p = A and B turns into (p or not A or not B) and (not p or A) and (not p or B)
+     elif operation == 'and':
++        mapping['clauses'].append([new_variable] + [f'not {operand}' for operand in new_operands])
+         for operand in new_operands:
+             mapping['clauses'].append([f'not {new_variable}', operand])
+-        mapping['clauses'].append([new_variable] + [f'not {operand}' for operand in new_operands])
+-    # A or B turns into (not A or p) and (not B or p) and (A or B or not p)
++    # p = A or B turns into (p or not A) and (p or not B) and (not p or A or B)
+     elif operation == 'or':
+         for operand in new_operands:
+-            mapping['clauses'].append([f'not {operand}', new_variable])
++            mapping['clauses'].append([new_variable, f'not {operand}'])
+         mapping['clauses'].append([f'not {new_variable}'] + new_operands)
+ 
+     return new_variable, counter
+@@ -71,7 +71,6 @@ def tseitin_to_smt(formula):
+     mapping = {'clauses': []}
+     counter = 0
+     new_formula, counter = tseitin_transformation(formula, mapping, counter)
+-    mapping['clauses'].append([new_formula])
+ 
+     # Translate CNF to SMT-LIB syntax
+     smt_list = []
+@@ -83,11 +82,14 @@ def tseitin_to_smt(formula):
+             else:
+                 smt_clause.append(lit)
+         smt_list.append(f'(or {" ".join(smt_clause)})')
+-    
+-    smt_list.append(formula)
+ 
+-    # Return SMT-LIB representation
+-    return f'(and {" ".join(smt_list)})'
++    # add back in the mappings for the original variables
++    for key in mapping:
++        if key != 'clauses':
++            smt_list.append(f'(= {key} {mapping[key]})')
++
++    return new_formula, f'(and {" ".join(smt_list)})'
++
+ 
+ # def cnf_to_z3(cnf_list):
+ #     vars = {}
+
+commit 044bf5ba96c1851b4b4bd1ccf198b78a1a652cd1
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Sun Jul 2 13:22:57 2023 +0200
+
+    cleaup
+
+diff --git a/tseitin.py b/tseitin.py
+index 7e4fa36..06d2253 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -89,95 +89,65 @@ def tseitin_to_smt(formula):
+     # Return SMT-LIB representation
+     return f'(and {" ".join(smt_list)})'
+ 
+-def cnf_to_z3(cnf_list):
+-    vars = {}
+-    z3_vars = {}
+-
+-    def get_var(lit):
+-        nonlocal vars, z3_vars
+-        var = lit.replace('not ', '')
+-        if var not in vars:
+-            vars[var] = Bool(var)
+-            z3_vars[var] = vars[var]
+-        return (Not(z3_vars[var]) if 'not ' in lit else z3_vars[var])
+-
+-    clauses = []
+-    for clause in cnf_list:
+-        new_clause = []
+-        for lit in clause:
+-            if lit == 'true':
+-                new_clause.append(True)
+-            elif lit == 'false':
+-                new_clause.append(False)
+-            elif isinstance(lit, list):  # Treat list as a conjunction
+-                subclause = []
+-                for sublit in lit:
+-                    subclause.append(get_var(sublit))
+-                new_clause.append(And(*subclause))
+-            else:
+-                new_clause.append(get_var(lit))
+-        clauses.append(Or(*new_clause))
+-
+-    return vars, And(*clauses)
+-
+-
+-def interpret_model(model, mapping):
+-    interpretation = {}
+-    for variable in model:
+-        if variable in mapping:
+-            p_variable = mapping[variable]
+-            value = model[variable]
+-            interpretation[p_variable] = {
+-                'value': value,
+-                'original_variable': variable
+-            }
+-    return interpretation
+-
+-
+-def evaluate(transformed, mapping):
+-    vars, clauses = cnf_to_z3(transformed)
+-    solver = Solver()
+-    solver.add(clauses)
+-
+-    if solver.check() == sat:
+-        model = solver.model()
+-        assignment = {str(var): model.evaluate(var) for var in vars.values()}
+-        print("Tseitin assignment: ", assignment)
+-
+-        # interpret the assignment
+-        interpretation = interpret_model(assignment, mapping)
+-        print("Interpretation: ", interpretation)
+-
+-        return True
+-    else:
+-        print("UNSAT")
+-        return False
+-
+-
+-# def tseitin_to_cnf(formula):
+-#     mapping = {'clauses': []}
+-#     counter = 0
+-#     new_formula, counter = tseitin_transformation(formula, mapping, counter)
+-#     mapping['clauses'].append([new_formula])
+-
+-#     # add back the non-boolean operations
+-#     for variable, subformula in mapping.items():
+-#         if variable in ['clauses']:
+-#             continue
+-#         mapping['clauses'].append([f'not {variable}', subformula])
+-#         mapping['clauses'].append([variable, f'not {subformula}'])
+-
+-#     return mapping['clauses'], mapping
+-
+-# def cnf_to_smt(cnf_list):
+-#     smt_list = []
++# def cnf_to_z3(cnf_list):
++#     vars = {}
++#     z3_vars = {}
++
++#     def get_var(lit):
++#         nonlocal vars, z3_vars
++#         var = lit.replace('not ', '')
++#         if var not in vars:
++#             vars[var] = Bool(var)
++#             z3_vars[var] = vars[var]
++#         return (Not(z3_vars[var]) if 'not ' in lit else z3_vars[var])
++
++#     clauses = []
+ #     for clause in cnf_list:
+-#         smt_clause = []
++#         new_clause = []
+ #         for lit in clause:
+-#             if "not" in lit:
+-#                 lit = lit.replace("not ", "") # Remove 'not' from literal
+-#                 smt_clause.append(f'(not {lit})') # Apply 'not' as per SMT-lib syntax
++#             if lit == 'true':
++#                 new_clause.append(True)
++#             elif lit == 'false':
++#                 new_clause.append(False)
++#             elif isinstance(lit, list):  # Treat list as a conjunction
++#                 subclause = []
++#                 for sublit in lit:
++#                     subclause.append(get_var(sublit))
++#                 new_clause.append(And(*subclause))
+ #             else:
+-#                 smt_clause.append(lit)
+-#         smt_list.append(f'(or {" ".join(smt_clause)})')
+-#     return f'(and {" ".join(smt_list)})'
+\ No newline at end of file
++#                 new_clause.append(get_var(lit))
++#         clauses.append(Or(*new_clause))
++
++#     return vars, And(*clauses)
++
++# def interpret_model(model, mapping):
++#     interpretation = {}
++#     for variable in model:
++#         if variable in mapping:
++#             p_variable = mapping[variable]
++#             value = model[variable]
++#             interpretation[p_variable] = {
++#                 'value': value,
++#                 'original_variable': variable
++#             }
++#     return interpretation
++
++
++# def evaluate(transformed, mapping):
++#     vars, clauses = cnf_to_z3(transformed)
++#     solver = Solver()
++#     solver.add(clauses)
++
++#     if solver.check() == sat:
++#         model = solver.model()
++#         assignment = {str(var): model.evaluate(var) for var in vars.values()}
++#         print("Tseitin assignment: ", assignment)
++
++#         # interpret the assignment
++#         interpretation = interpret_model(assignment, mapping)
++#         print("Interpretation: ", interpretation)
++
++#         return True
++#     else:
++#         print("UNSAT")
++#         return False
+\ No newline at end of file
+
+commit 7f1e8cbeb3ba18f64b327f0f005b97b99423971e
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue Jun 27 02:11:10 2023 +0200
+
+    unneeded
+
+diff --git a/main.py b/main.py
+index 080051f..415e219 100644
+--- a/main.py
++++ b/main.py
+@@ -13,9 +13,9 @@ tests = [
+     # ("¬(⊤ ∨ x)"),
+     # ("¬(⊥ ∧ x)"),
+     # ("⊤ U[0, 5] ⊥"),
+-    # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++    ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+     # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+-    ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
++    # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+     # ("(a U[1, 2] b) U[3, 5] c"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+     # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+@@ -36,9 +36,6 @@ for stl in tests:
+     smtlib = compiler.stl_to_smtlib(stl)
+     print(smtlib)
+     formula = tseitin.tseitin_to_smt(smtlib)
+-    # print(formula)
+-    # print(tseitin.cnf_to_z3(transformed))
+-    # tseitin.evaluate(transformed, mapping)
+ 
+     measures.all_clauses(formula, 'smt/clauses.smt2')
+ 
+diff --git a/measures.py b/measures.py
+index bd7714c..fcc88cd 100644
+--- a/measures.py
++++ b/measures.py
+@@ -10,9 +10,6 @@ def is_possible(epsilon, deltas, signals, times, measurements):
+         clauses.append('(assert (and (<= (- ' + str(epsilon[signal]) + ') o' + str(signal) + ') (<= o' + str(signal) + ' ' + str(epsilon[signal]) + ')))')
+         for time in times:
+             clauses.append('(declare-const ' + str(signal) + str(time) + ' Real)')
+-            # Do we need to create bounds for xi? If so, #HACK
+-            # clauses.append('(assert (and (<= (- 9999999999999) ' + str(signal) + str(time) + ') (<= ' + str(signal) + str(time) + ' 9999999999999)))')
+-
+             clauses.append('(declare-const e' + str(signal) + str(time) + ' Real)')
+             clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') e' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
+             clauses.append('(declare-const m' + str(signal) + str(time) + ' Real)')
+
+commit ee1267a9ac082834496bac359385fbeb0d587cc4
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 26 15:58:55 2023 +0200
+
+    inconclusivity - close #17
+
+diff --git a/compiler.py b/compiler.py
+index ed2fe8f..0177ec5 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -231,18 +231,18 @@ def translate(node, base_time=0):
+ 
+ def test_stl_to_smtlib():
+     tests = [
+-        ("⊤"), 
+-        ("⊥"), 
+-        ("¬x"), 
+-        ("x ∨ y"), 
+-        ("x ∧ ¬y"), 
+-        ("¬(x ∧ y)"), 
+-        ("⊤ ∨ x"), 
+-        ("⊥ ∧ x"), 
+-        ("⊥ ∧ ⊥"), 
+-        ("¬(⊤ ∨ x)"),
+-        ("¬(⊥ ∧ x)"),
+-        ("⊤ U[0, 5] ⊥"),
++        # ("⊤"), 
++        # ("⊥"), 
++        # ("¬x"), 
++        # ("x ∨ y"), 
++        # ("x ∧ ¬y"), 
++        # ("¬(x ∧ y)"), 
++        # ("⊤ ∨ x"), 
++        # ("⊥ ∧ x"), 
++        # ("⊥ ∧ ⊥"), 
++        # ("¬(⊤ ∨ x)"),
++        # ("¬(⊥ ∧ x)"),
++        # ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+         # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+diff --git a/data/timeseries.csv b/data/timeseries.csv
+index adc570d..c7ef9c6 100644
+--- a/data/timeseries.csv
++++ b/data/timeseries.csv
+@@ -1,16 +1,25 @@
+ ﻿signal,time,epsilon,delta,measurement
+-a,0,0,0,3
+-a,1,0,0,3
+-a,2,0,0,3
+-a,3,0,0,3
+-a,4,0,0,3
+-b,0,0,0,1
+-b,1,0,0,1
+-b,2,0,0,1
+-b,3,0,0,1
+-b,4,0,0,1
+-c,0,0.5,0.5,2
+-c,1,0.5,0.5,2
+-c,2,0.5,0.5,2
+-c,3,0.5,0.5,2
+-c,4,0.5,0.5,2
+\ No newline at end of file
++x,0,0,0,3
++x,1,0,0,3
++x,2,0,0,3
++x,3,0,0,3
++x,4,0,0,3
++x,5,0,0,3
++x,6,0,0,3
++x,7,0,0,3
++y,0,0,0,0
++y,1,0,0,0
++y,2,0,0,0
++y,3,0,0,0
++y,4,0,0,0
++y,5,0,0,0
++y,6,0,0,0
++y,7,0,0,0
++z,0,0,0,2
++z,1,0,0,2
++z,2,0,0,2
++z,3,0,0,2
++z,4,0,0,2
++z,5,0,0,2
++z,6,0,0,2
++z,7,0,0,2
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index 7b34dd6..080051f 100644
+--- a/main.py
++++ b/main.py
+@@ -15,10 +15,10 @@ tests = [
+     # ("⊤ U[0, 5] ⊥"),
+     # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+     # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+-    # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
++    ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+     # ("(a U[1, 2] b) U[3, 5] c"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+-    ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
++    # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+     # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
+     # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
+@@ -34,6 +34,7 @@ tests = [
+ for stl in tests:
+     print(stl)
+     smtlib = compiler.stl_to_smtlib(stl)
++    print(smtlib)
+     formula = tseitin.tseitin_to_smt(smtlib)
+     # print(formula)
+     # print(tseitin.cnf_to_z3(transformed))
+@@ -60,13 +61,11 @@ for stl in tests:
+     if s2.check() == z3.sat:
+         print(s2.model())
+ 
+-
+-
+-    # if s1.check() == z3.sat and s2.check() == z3.sat:
+-    #     print("inconclusive")
+-    # elif s2.check() == z3.unsat:
+-    #     print("True")
+-    # elif s1.check() == z3.unsat:
+-    #     print("False")
++    if s1.check() == z3.sat and s2.check() == z3.sat:
++        print("inconclusive")
++    elif s2.check() == z3.unsat:
++        print("True")
++    elif s1.check() == z3.unsat:
++        print("False")
+ 
+     print()
+diff --git a/smt/clauses.smt2 b/smt/clauses.smt2
+index 7f5e6e7..cb85f67 100644
+--- a/smt/clauses.smt2
++++ b/smt/clauses.smt2
+@@ -1,107 +1,194 @@
+ (set-logic QF_LRA)
+ (set-option :print-success false)
+-(declare-const oa Real)
+-(assert (and (<= (- 0.0) oa) (<= oa 0.0)))
+-(declare-const a0 Real)
+-(declare-const ea0 Real)
+-(assert (and (<= (- 0.0) ea0) (<= ea0 0.0)))
+-(declare-const ma0 Real)
+-(assert (= ma0 3))
+-(assert (= (+ a0 oa ea0) ma0))
+-(declare-const a1 Real)
+-(declare-const ea1 Real)
+-(assert (and (<= (- 0.0) ea1) (<= ea1 0.0)))
+-(declare-const ma1 Real)
+-(assert (= ma1 3))
+-(assert (= (+ a1 oa ea1) ma1))
+-(declare-const a2 Real)
+-(declare-const ea2 Real)
+-(assert (and (<= (- 0.0) ea2) (<= ea2 0.0)))
+-(declare-const ma2 Real)
+-(assert (= ma2 3))
+-(assert (= (+ a2 oa ea2) ma2))
+-(declare-const a3 Real)
+-(declare-const ea3 Real)
+-(assert (and (<= (- 0.0) ea3) (<= ea3 0.0)))
+-(declare-const ma3 Real)
+-(assert (= ma3 3))
+-(assert (= (+ a3 oa ea3) ma3))
+-(declare-const a4 Real)
+-(declare-const ea4 Real)
+-(assert (and (<= (- 0.0) ea4) (<= ea4 0.0)))
+-(declare-const ma4 Real)
+-(assert (= ma4 3))
+-(assert (= (+ a4 oa ea4) ma4))
+-(declare-const oc Real)
+-(assert (and (<= (- 0.0) oc) (<= oc 0.0)))
+-(declare-const c0 Real)
+-(declare-const ec0 Real)
+-(assert (and (<= (- 0.5) ec0) (<= ec0 0.5)))
+-(declare-const mc0 Real)
+-(assert (= mc0 2))
+-(assert (= (+ c0 oc ec0) mc0))
+-(declare-const c1 Real)
+-(declare-const ec1 Real)
+-(assert (and (<= (- 0.5) ec1) (<= ec1 0.5)))
+-(declare-const mc1 Real)
+-(assert (= mc1 2))
+-(assert (= (+ c1 oc ec1) mc1))
+-(declare-const c2 Real)
+-(declare-const ec2 Real)
+-(assert (and (<= (- 0.5) ec2) (<= ec2 0.5)))
+-(declare-const mc2 Real)
+-(assert (= mc2 2))
+-(assert (= (+ c2 oc ec2) mc2))
+-(declare-const c3 Real)
+-(declare-const ec3 Real)
+-(assert (and (<= (- 0.5) ec3) (<= ec3 0.5)))
+-(declare-const mc3 Real)
+-(assert (= mc3 2))
+-(assert (= (+ c3 oc ec3) mc3))
+-(declare-const c4 Real)
+-(declare-const ec4 Real)
+-(assert (and (<= (- 0.5) ec4) (<= ec4 0.5)))
+-(declare-const mc4 Real)
+-(assert (= mc4 2))
+-(assert (= (+ c4 oc ec4) mc4))
+-(declare-const ob Real)
+-(assert (and (<= (- 0.0) ob) (<= ob 0.0)))
+-(declare-const b0 Real)
+-(declare-const eb0 Real)
+-(assert (and (<= (- 0.0) eb0) (<= eb0 0.0)))
+-(declare-const mb0 Real)
+-(assert (= mb0 1))
+-(assert (= (+ b0 ob eb0) mb0))
+-(declare-const b1 Real)
+-(declare-const eb1 Real)
+-(assert (and (<= (- 0.0) eb1) (<= eb1 0.0)))
+-(declare-const mb1 Real)
+-(assert (= mb1 1))
+-(assert (= (+ b1 ob eb1) mb1))
+-(declare-const b2 Real)
+-(declare-const eb2 Real)
+-(assert (and (<= (- 0.0) eb2) (<= eb2 0.0)))
+-(declare-const mb2 Real)
+-(assert (= mb2 1))
+-(assert (= (+ b2 ob eb2) mb2))
+-(declare-const b3 Real)
+-(declare-const eb3 Real)
+-(assert (and (<= (- 0.0) eb3) (<= eb3 0.0)))
+-(declare-const mb3 Real)
+-(assert (= mb3 1))
+-(assert (= (+ b3 ob eb3) mb3))
+-(declare-const b4 Real)
+-(declare-const eb4 Real)
+-(assert (and (<= (- 0.0) eb4) (<= eb4 0.0)))
+-(declare-const mb4 Real)
+-(assert (= mb4 1))
+-(assert (= (+ b4 ob eb4) mb4))
+-(declare-const p2 Bool)
+-(declare-const p4 Bool)
+-(declare-const p7 Bool)
++(declare-const oy Real)
++(assert (and (<= (- 0) oy) (<= oy 0)))
++(declare-const y0 Real)
++(declare-const ey0 Real)
++(assert (and (<= (- 0) ey0) (<= ey0 0)))
++(declare-const my0 Real)
++(assert (= my0 0))
++(assert (= (+ y0 oy ey0) my0))
++(declare-const y1 Real)
++(declare-const ey1 Real)
++(assert (and (<= (- 0) ey1) (<= ey1 0)))
++(declare-const my1 Real)
++(assert (= my1 0))
++(assert (= (+ y1 oy ey1) my1))
++(declare-const y2 Real)
++(declare-const ey2 Real)
++(assert (and (<= (- 0) ey2) (<= ey2 0)))
++(declare-const my2 Real)
++(assert (= my2 0))
++(assert (= (+ y2 oy ey2) my2))
++(declare-const y3 Real)
++(declare-const ey3 Real)
++(assert (and (<= (- 0) ey3) (<= ey3 0)))
++(declare-const my3 Real)
++(assert (= my3 0))
++(assert (= (+ y3 oy ey3) my3))
++(declare-const y4 Real)
++(declare-const ey4 Real)
++(assert (and (<= (- 0) ey4) (<= ey4 0)))
++(declare-const my4 Real)
++(assert (= my4 0))
++(assert (= (+ y4 oy ey4) my4))
++(declare-const y5 Real)
++(declare-const ey5 Real)
++(assert (and (<= (- 0) ey5) (<= ey5 0)))
++(declare-const my5 Real)
++(assert (= my5 0))
++(assert (= (+ y5 oy ey5) my5))
++(declare-const y6 Real)
++(declare-const ey6 Real)
++(assert (and (<= (- 0) ey6) (<= ey6 0)))
++(declare-const my6 Real)
++(assert (= my6 0))
++(assert (= (+ y6 oy ey6) my6))
++(declare-const y7 Real)
++(declare-const ey7 Real)
++(assert (and (<= (- 0) ey7) (<= ey7 0)))
++(declare-const my7 Real)
++(assert (= my7 0))
++(assert (= (+ y7 oy ey7) my7))
++(declare-const oz Real)
++(assert (and (<= (- 0) oz) (<= oz 0)))
++(declare-const z0 Real)
++(declare-const ez0 Real)
++(assert (and (<= (- 0) ez0) (<= ez0 0)))
++(declare-const mz0 Real)
++(assert (= mz0 2))
++(assert (= (+ z0 oz ez0) mz0))
++(declare-const z1 Real)
++(declare-const ez1 Real)
++(assert (and (<= (- 0) ez1) (<= ez1 0)))
++(declare-const mz1 Real)
++(assert (= mz1 2))
++(assert (= (+ z1 oz ez1) mz1))
++(declare-const z2 Real)
++(declare-const ez2 Real)
++(assert (and (<= (- 0) ez2) (<= ez2 0)))
++(declare-const mz2 Real)
++(assert (= mz2 2))
++(assert (= (+ z2 oz ez2) mz2))
++(declare-const z3 Real)
++(declare-const ez3 Real)
++(assert (and (<= (- 0) ez3) (<= ez3 0)))
++(declare-const mz3 Real)
++(assert (= mz3 2))
++(assert (= (+ z3 oz ez3) mz3))
++(declare-const z4 Real)
++(declare-const ez4 Real)
++(assert (and (<= (- 0) ez4) (<= ez4 0)))
++(declare-const mz4 Real)
++(assert (= mz4 2))
++(assert (= (+ z4 oz ez4) mz4))
++(declare-const z5 Real)
++(declare-const ez5 Real)
++(assert (and (<= (- 0) ez5) (<= ez5 0)))
++(declare-const mz5 Real)
++(assert (= mz5 2))
++(assert (= (+ z5 oz ez5) mz5))
++(declare-const z6 Real)
++(declare-const ez6 Real)
++(assert (and (<= (- 0) ez6) (<= ez6 0)))
++(declare-const mz6 Real)
++(assert (= mz6 2))
++(assert (= (+ z6 oz ez6) mz6))
++(declare-const z7 Real)
++(declare-const ez7 Real)
++(assert (and (<= (- 0) ez7) (<= ez7 0)))
++(declare-const mz7 Real)
++(assert (= mz7 2))
++(assert (= (+ z7 oz ez7) mz7))
++(declare-const ox Real)
++(assert (and (<= (- 0) ox) (<= ox 0)))
++(declare-const x0 Real)
++(declare-const ex0 Real)
++(assert (and (<= (- 0) ex0) (<= ex0 0)))
++(declare-const mx0 Real)
++(assert (= mx0 3))
++(assert (= (+ x0 ox ex0) mx0))
++(declare-const x1 Real)
++(declare-const ex1 Real)
++(assert (and (<= (- 0) ex1) (<= ex1 0)))
++(declare-const mx1 Real)
++(assert (= mx1 3))
++(assert (= (+ x1 ox ex1) mx1))
++(declare-const x2 Real)
++(declare-const ex2 Real)
++(assert (and (<= (- 0) ex2) (<= ex2 0)))
++(declare-const mx2 Real)
++(assert (= mx2 3))
++(assert (= (+ x2 ox ex2) mx2))
++(declare-const x3 Real)
++(declare-const ex3 Real)
++(assert (and (<= (- 0) ex3) (<= ex3 0)))
++(declare-const mx3 Real)
++(assert (= mx3 3))
++(assert (= (+ x3 ox ex3) mx3))
++(declare-const x4 Real)
++(declare-const ex4 Real)
++(assert (and (<= (- 0) ex4) (<= ex4 0)))
++(declare-const mx4 Real)
++(assert (= mx4 3))
++(assert (= (+ x4 ox ex4) mx4))
++(declare-const x5 Real)
++(declare-const ex5 Real)
++(assert (and (<= (- 0) ex5) (<= ex5 0)))
++(declare-const mx5 Real)
++(assert (= mx5 3))
++(assert (= (+ x5 ox ex5) mx5))
++(declare-const x6 Real)
++(declare-const ex6 Real)
++(assert (and (<= (- 0) ex6) (<= ex6 0)))
++(declare-const mx6 Real)
++(assert (= mx6 3))
++(assert (= (+ x6 ox ex6) mx6))
++(declare-const x7 Real)
++(declare-const ex7 Real)
++(assert (and (<= (- 0) ex7) (<= ex7 0)))
++(declare-const mx7 Real)
++(assert (= mx7 3))
++(assert (= (+ x7 ox ex7) mx7))
++(declare-const p6 Bool)
++(declare-const p14 Bool)
++(declare-const p33 Bool)
++(declare-const p16 Bool)
++(declare-const p20 Bool)
++(declare-const p12 Bool)
++(declare-const p29 Bool)
++(declare-const p19 Bool)
++(declare-const p36 Bool)
++(declare-const p27 Bool)
++(declare-const p25 Bool)
++(declare-const p15 Bool)
++(declare-const p40 Bool)
+ (declare-const p5 Bool)
++(declare-const p28 Bool)
++(declare-const p23 Bool)
++(declare-const p35 Bool)
+ (declare-const p1 Bool)
++(declare-const p34 Bool)
++(declare-const p21 Bool)
++(declare-const p18 Bool)
++(declare-const p9 Bool)
++(declare-const p31 Bool)
++(declare-const p30 Bool)
++(declare-const p24 Bool)
++(declare-const p7 Bool)
++(declare-const p2 Bool)
++(declare-const p13 Bool)
++(declare-const p26 Bool)
++(declare-const p32 Bool)
++(declare-const p11 Bool)
++(declare-const p8 Bool)
++(declare-const p17 Bool)
++(declare-const p22 Bool)
++(declare-const p4 Bool)
+ (declare-const p3 Bool)
+-(declare-const p6 Bool)
+-(assert (and (or (not p2) (>= (+ a0 b0) 4)) (or (not p2) (>= (+ a1 b1) 4)) (or (not p2) p1) (or p2 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not p1)) (or (not p4) (>= (+ a0 b0) 4)) (or (not p4) (>= (+ a1 b1) 4)) (or (not p4) (>= (+ a2 b2) 4)) (or (not p4) p3) (or p4 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not (>= (+ a2 b2) 4)) (not p3)) (or (not p6) (>= (+ a0 b0) 4)) (or (not p6) (>= (+ a1 b1) 4)) (or (not p6) (>= (+ a2 b2) 4)) (or (not p6) (>= (+ a3 b3) 4)) (or (not p6) p5) (or p6 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not (>= (+ a2 b2) 4)) (not (>= (+ a3 b3) 4)) (not p5)) (or (not p2) p7) (or (not p4) p7) (or (not p6) p7) (or (not p7) p2 p4 p6) (or p7) (or (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= c2 2)) (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= (+ a2 b2) 4) (>= c3 2)) (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= (+ a2 b2) 4) (>= (+ a3 b3) 4) (>= c4 2)))))
++(declare-const p38 Bool)
++(declare-const p37 Bool)
++(declare-const p10 Bool)
++(declare-const p39 Bool)
++(assert (and (or (not p6) p4) (or (not p6) p5) (or p6 (not p4) (not p5)) (or (not p10) p7) (or (not p10) p8) (or (not p10) p9) (or p10 (not p7) (not p8) (not p9)) (or (not p6) p11) (or (not p10) p11) (or (not p11) p6 p10) (or (not p12) p1) (or (not p12) p2) (or (not p12) p3) (or (not p12) p11) (or p12 (not p1) (not p2) (not p3) (not p11)) (or (not p19) p17) (or (not p19) p18) (or p19 (not p17) (not p18)) (or (not p23) p20) (or (not p23) p21) (or (not p23) p22) (or p23 (not p20) (not p21) (not p22)) (or (not p19) p24) (or (not p23) p24) (or (not p24) p19 p23) (or (not p25) p13) (or (not p25) p14) (or (not p25) p15) (or (not p25) p16) (or (not p25) p24) (or p25 (not p13) (not p14) (not p15) (not p16) (not p24)) (or (not p33) p31) (or (not p33) p32) (or p33 (not p31) (not p32)) (or (not p37) p34) (or (not p37) p35) (or (not p37) p36) (or p37 (not p34) (not p35) (not p36)) (or (not p33) p38) (or (not p37) p38) (or (not p38) p33 p37) (or (not p39) p26) (or (not p39) p27) (or (not p39) p28) (or (not p39) p29) (or (not p39) p30) (or (not p39) p38) (or p39 (not p26) (not p27) (not p28) (not p29) (not p30) (not p38)) (or (not p12) p40) (or (not p25) p40) (or (not p39) p40) (or (not p40) p12 p25 p39) (or p40) (or (and (>= x0 3) (>= x1 3) (>= x2 3) (or (and (>= z3 2) (>= y4 5)) (and (>= z3 2) (>= z4 2) (>= y5 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (or (and (>= z4 2) (>= y5 5)) (and (>= z4 2) (>= z5 2) (>= y6 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (>= x4 3) (or (and (>= z5 2) (>= y6 5)) (and (>= z5 2) (>= z6 2) (>= y7 5)))))))
+ (check-sat)
+diff --git a/smt/not_clauses.smt2 b/smt/not_clauses.smt2
+new file mode 100644
+index 0000000..a8d44ee
+--- /dev/null
++++ b/smt/not_clauses.smt2
+@@ -0,0 +1,195 @@
++(set-logic QF_LRA)
++(set-option :print-success false)
++(declare-const oy Real)
++(assert (and (<= (- 0) oy) (<= oy 0)))
++(declare-const y0 Real)
++(declare-const ey0 Real)
++(assert (and (<= (- 0) ey0) (<= ey0 0)))
++(declare-const my0 Real)
++(assert (= my0 0))
++(assert (= (+ y0 oy ey0) my0))
++(declare-const y1 Real)
++(declare-const ey1 Real)
++(assert (and (<= (- 0) ey1) (<= ey1 0)))
++(declare-const my1 Real)
++(assert (= my1 0))
++(assert (= (+ y1 oy ey1) my1))
++(declare-const y2 Real)
++(declare-const ey2 Real)
++(assert (and (<= (- 0) ey2) (<= ey2 0)))
++(declare-const my2 Real)
++(assert (= my2 0))
++(assert (= (+ y2 oy ey2) my2))
++(declare-const y3 Real)
++(declare-const ey3 Real)
++(assert (and (<= (- 0) ey3) (<= ey3 0)))
++(declare-const my3 Real)
++(assert (= my3 0))
++(assert (= (+ y3 oy ey3) my3))
++(declare-const y4 Real)
++(declare-const ey4 Real)
++(assert (and (<= (- 0) ey4) (<= ey4 0)))
++(declare-const my4 Real)
++(assert (= my4 0))
++(assert (= (+ y4 oy ey4) my4))
++(declare-const y5 Real)
++(declare-const ey5 Real)
++(assert (and (<= (- 0) ey5) (<= ey5 0)))
++(declare-const my5 Real)
++(assert (= my5 0))
++(assert (= (+ y5 oy ey5) my5))
++(declare-const y6 Real)
++(declare-const ey6 Real)
++(assert (and (<= (- 0) ey6) (<= ey6 0)))
++(declare-const my6 Real)
++(assert (= my6 0))
++(assert (= (+ y6 oy ey6) my6))
++(declare-const y7 Real)
++(declare-const ey7 Real)
++(assert (and (<= (- 0) ey7) (<= ey7 0)))
++(declare-const my7 Real)
++(assert (= my7 0))
++(assert (= (+ y7 oy ey7) my7))
++(declare-const oz Real)
++(assert (and (<= (- 0) oz) (<= oz 0)))
++(declare-const z0 Real)
++(declare-const ez0 Real)
++(assert (and (<= (- 0) ez0) (<= ez0 0)))
++(declare-const mz0 Real)
++(assert (= mz0 2))
++(assert (= (+ z0 oz ez0) mz0))
++(declare-const z1 Real)
++(declare-const ez1 Real)
++(assert (and (<= (- 0) ez1) (<= ez1 0)))
++(declare-const mz1 Real)
++(assert (= mz1 2))
++(assert (= (+ z1 oz ez1) mz1))
++(declare-const z2 Real)
++(declare-const ez2 Real)
++(assert (and (<= (- 0) ez2) (<= ez2 0)))
++(declare-const mz2 Real)
++(assert (= mz2 2))
++(assert (= (+ z2 oz ez2) mz2))
++(declare-const z3 Real)
++(declare-const ez3 Real)
++(assert (and (<= (- 0) ez3) (<= ez3 0)))
++(declare-const mz3 Real)
++(assert (= mz3 2))
++(assert (= (+ z3 oz ez3) mz3))
++(declare-const z4 Real)
++(declare-const ez4 Real)
++(assert (and (<= (- 0) ez4) (<= ez4 0)))
++(declare-const mz4 Real)
++(assert (= mz4 2))
++(assert (= (+ z4 oz ez4) mz4))
++(declare-const z5 Real)
++(declare-const ez5 Real)
++(assert (and (<= (- 0) ez5) (<= ez5 0)))
++(declare-const mz5 Real)
++(assert (= mz5 2))
++(assert (= (+ z5 oz ez5) mz5))
++(declare-const z6 Real)
++(declare-const ez6 Real)
++(assert (and (<= (- 0) ez6) (<= ez6 0)))
++(declare-const mz6 Real)
++(assert (= mz6 2))
++(assert (= (+ z6 oz ez6) mz6))
++(declare-const z7 Real)
++(declare-const ez7 Real)
++(assert (and (<= (- 0) ez7) (<= ez7 0)))
++(declare-const mz7 Real)
++(assert (= mz7 2))
++(assert (= (+ z7 oz ez7) mz7))
++(declare-const ox Real)
++(assert (and (<= (- 0) ox) (<= ox 0)))
++(declare-const x0 Real)
++(declare-const ex0 Real)
++(assert (and (<= (- 0) ex0) (<= ex0 0)))
++(declare-const mx0 Real)
++(assert (= mx0 3))
++(assert (= (+ x0 ox ex0) mx0))
++(declare-const x1 Real)
++(declare-const ex1 Real)
++(assert (and (<= (- 0) ex1) (<= ex1 0)))
++(declare-const mx1 Real)
++(assert (= mx1 3))
++(assert (= (+ x1 ox ex1) mx1))
++(declare-const x2 Real)
++(declare-const ex2 Real)
++(assert (and (<= (- 0) ex2) (<= ex2 0)))
++(declare-const mx2 Real)
++(assert (= mx2 3))
++(assert (= (+ x2 ox ex2) mx2))
++(declare-const x3 Real)
++(declare-const ex3 Real)
++(assert (and (<= (- 0) ex3) (<= ex3 0)))
++(declare-const mx3 Real)
++(assert (= mx3 3))
++(assert (= (+ x3 ox ex3) mx3))
++(declare-const x4 Real)
++(declare-const ex4 Real)
++(assert (and (<= (- 0) ex4) (<= ex4 0)))
++(declare-const mx4 Real)
++(assert (= mx4 3))
++(assert (= (+ x4 ox ex4) mx4))
++(declare-const x5 Real)
++(declare-const ex5 Real)
++(assert (and (<= (- 0) ex5) (<= ex5 0)))
++(declare-const mx5 Real)
++(assert (= mx5 3))
++(assert (= (+ x5 ox ex5) mx5))
++(declare-const x6 Real)
++(declare-const ex6 Real)
++(assert (and (<= (- 0) ex6) (<= ex6 0)))
++(declare-const mx6 Real)
++(assert (= mx6 3))
++(assert (= (+ x6 ox ex6) mx6))
++(declare-const x7 Real)
++(declare-const ex7 Real)
++(assert (and (<= (- 0) ex7) (<= ex7 0)))
++(declare-const mx7 Real)
++(assert (= mx7 3))
++(assert (= (+ x7 ox ex7) mx7))
++(declare-const p6 Bool)
++(declare-const p14 Bool)
++(declare-const p33 Bool)
++(declare-const p16 Bool)
++(declare-const p20 Bool)
++(declare-const p12 Bool)
++(declare-const p29 Bool)
++(declare-const p19 Bool)
++(declare-const p36 Bool)
++(declare-const p27 Bool)
++(declare-const p25 Bool)
++(declare-const p15 Bool)
++(declare-const p40 Bool)
++(declare-const p5 Bool)
++(declare-const p41 Bool)
++(declare-const p28 Bool)
++(declare-const p23 Bool)
++(declare-const p35 Bool)
++(declare-const p1 Bool)
++(declare-const p34 Bool)
++(declare-const p21 Bool)
++(declare-const p18 Bool)
++(declare-const p9 Bool)
++(declare-const p31 Bool)
++(declare-const p30 Bool)
++(declare-const p24 Bool)
++(declare-const p7 Bool)
++(declare-const p2 Bool)
++(declare-const p13 Bool)
++(declare-const p26 Bool)
++(declare-const p32 Bool)
++(declare-const p11 Bool)
++(declare-const p8 Bool)
++(declare-const p17 Bool)
++(declare-const p22 Bool)
++(declare-const p4 Bool)
++(declare-const p3 Bool)
++(declare-const p38 Bool)
++(declare-const p37 Bool)
++(declare-const p10 Bool)
++(declare-const p39 Bool)
++(assert (and (or (not p6) p4) (or (not p6) p5) (or p6 (not p4) (not p5)) (or (not p10) p7) (or (not p10) p8) (or (not p10) p9) (or p10 (not p7) (not p8) (not p9)) (or (not p6) p11) (or (not p10) p11) (or (not p11) p6 p10) (or (not p12) p1) (or (not p12) p2) (or (not p12) p3) (or (not p12) p11) (or p12 (not p1) (not p2) (not p3) (not p11)) (or (not p19) p17) (or (not p19) p18) (or p19 (not p17) (not p18)) (or (not p23) p20) (or (not p23) p21) (or (not p23) p22) (or p23 (not p20) (not p21) (not p22)) (or (not p19) p24) (or (not p23) p24) (or (not p24) p19 p23) (or (not p25) p13) (or (not p25) p14) (or (not p25) p15) (or (not p25) p16) (or (not p25) p24) (or p25 (not p13) (not p14) (not p15) (not p16) (not p24)) (or (not p33) p31) (or (not p33) p32) (or p33 (not p31) (not p32)) (or (not p37) p34) (or (not p37) p35) (or (not p37) p36) (or p37 (not p34) (not p35) (not p36)) (or (not p33) p38) (or (not p37) p38) (or (not p38) p33 p37) (or (not p39) p26) (or (not p39) p27) (or (not p39) p28) (or (not p39) p29) (or (not p39) p30) (or (not p39) p38) (or p39 (not p26) (not p27) (not p28) (not p29) (not p30) (not p38)) (or (not p12) p40) (or (not p25) p40) (or (not p39) p40) (or (not p40) p12 p25 p39) (or p41 p40) (or (not p41) (not p40)) (or p41) (not (or (and (>= x0 3) (>= x1 3) (>= x2 3) (or (and (>= z3 2) (>= y4 5)) (and (>= z3 2) (>= z4 2) (>= y5 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (or (and (>= z4 2) (>= y5 5)) (and (>= z4 2) (>= z5 2) (>= y6 5)))) (and (>= x0 3) (>= x1 3) (>= x2 3) (>= x3 3) (>= x4 3) (or (and (>= z5 2) (>= y6 5)) (and (>= z5 2) (>= z6 2) (>= y7 5))))))))
++(check-sat)
+
+commit d98e0b0b9e6fdabee386caae8ea5b8efc3292819
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 26 14:32:10 2023 +0200
+
+    eureka - close #18
+
+diff --git a/compiler.py b/compiler.py
+index 3f72f9e..ed2fe8f 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -145,36 +145,36 @@ def parse(tokens):
+     # Start parsing
+     return parse_expression()
+ 
+-def replace_vars_with_time(expr, time):
+-    ignore_list = ['true', 'false', 'and', 'or', 'not']  # List of terms to ignore
++# def replace_vars_with_time(expr, time):
++#     ignore_list = ['true', 'false', 'and', 'or', 'not']  # List of terms to ignore
+ 
+-    # Find all words consisting only of alphabetical characters
+-    words = re.findall('[a-zA-Z]+', expr)
+-    # Find all words consisting of alphabetical characters followed by a number
+-    words_with_time = re.findall('[a-zA-Z]+\d+', expr)
++#     # Find all words consisting only of alphabetical characters
++#     words = re.findall('[a-zA-Z]+', expr)
++#     # Find all words consisting of alphabetical characters followed by a number
++#     words_with_time = re.findall('[a-zA-Z]+\d+', expr)
+ 
+-    for word in words:
+-        # Skip if word is in the ignore list
+-        if word in ignore_list:
+-            continue
++#     for word in words:
++#         # Skip if word is in the ignore list
++#         if word in ignore_list:
++#             continue
+ 
+-        # Replace each occurrence of the word in the expression with the word followed by the time value
+-        expr = re.sub(r'\b' + word + r'\b', word + str(time), expr)
++#         # Replace each occurrence of the word in the expression with the word followed by the time value
++#         expr = re.sub(r'\b' + word + r'\b', word + str(time), expr)
+     
+-    for word in words_with_time:
+-        # Skip if word is in the ignore list
+-        if word in ignore_list:
+-            continue
++#     for word in words_with_time:
++#         # Skip if word is in the ignore list
++#         if word in ignore_list:
++#             continue
+ 
+-        # Replace each occurrence of the word in the expression with the word followed by the new time value, which is the number after the word plus the passed time
+-        # get old time by stripping word of alphabetical characters
+-        old_time = int(re.sub('[a-zA-Z]+', '', word))
+-        # get new time by adding old time to passed time
+-        new_time = old_time + time
+-        # replace word with new word
+-        expr = re.sub(r'\b' + word + r'\b', word[:-len(str(old_time))] + str(new_time), expr)
++#         # Replace each occurrence of the word in the expression with the word followed by the new time value, which is the number after the word plus the passed time
++#         # get old time by stripping word of alphabetical characters
++#         old_time = int(re.sub('[a-zA-Z]+', '', word))
++#         # get new time by adding old time to passed time
++#         new_time = old_time + time
++#         # replace word with new word
++#         expr = re.sub(r'\b' + word + r'\b', word[:-len(str(old_time))] + str(new_time), expr)
+ 
+-    return expr
++#     return expr
+ 
+ def translate(node, base_time=0):
+     kind = node[0]
+@@ -231,21 +231,21 @@ def translate(node, base_time=0):
+ 
+ def test_stl_to_smtlib():
+     tests = [
+-        # ("⊤"), 
+-        # ("⊥"), 
+-        # ("¬x"), 
+-        # ("x ∨ y"), 
+-        # ("x ∧ ¬y"), 
+-        # ("¬(x ∧ y)"), 
+-        # ("⊤ ∨ x"), 
+-        # ("⊥ ∧ x"), 
+-        # ("⊥ ∧ ⊥"), 
+-        # ("¬(⊤ ∨ x)"),
+-        # ("¬(⊥ ∧ x)"),
+-        # ("⊤ U[0, 5] ⊥"),
++        ("⊤"), 
++        ("⊥"), 
++        ("¬x"), 
++        ("x ∨ y"), 
++        ("x ∧ ¬y"), 
++        ("¬(x ∧ y)"), 
++        ("⊤ ∨ x"), 
++        ("⊥ ∧ x"), 
++        ("⊥ ∧ ⊥"), 
++        ("¬(⊤ ∨ x)"),
++        ("¬(⊥ ∧ x)"),
++        ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+-        ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
++        # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+         # ("(a U[1, 2] b) U[3, 5] c"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+@@ -274,4 +274,4 @@ def test_stl_to_smtlib():
+ 
+         print()
+ 
+-test_stl_to_smtlib()
+\ No newline at end of file
++# test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/data/timeseries.csv b/data/timeseries.csv
+index 5dd3f20..adc570d 100644
+--- a/data/timeseries.csv
++++ b/data/timeseries.csv
+@@ -1,10 +1,16 @@
+ ﻿signal,time,epsilon,delta,measurement
+-a,2,0.5,0.5,2
+-a,3,0.5,0.5,2
+-a,4,0.5,0.5,2
+-b,2,0.5,0.5,2
+-b,3,0.5,0.5,2
+-b,4,0.5,0.5,2
+-c,2,0.5,0.5,0
++a,0,0,0,3
++a,1,0,0,3
++a,2,0,0,3
++a,3,0,0,3
++a,4,0,0,3
++b,0,0,0,1
++b,1,0,0,1
++b,2,0,0,1
++b,3,0,0,1
++b,4,0,0,1
++c,0,0.5,0.5,2
++c,1,0.5,0.5,2
++c,2,0.5,0.5,2
+ c,3,0.5,0.5,2
+ c,4,0.5,0.5,2
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index 4746208..7b34dd6 100644
+--- a/main.py
++++ b/main.py
+@@ -14,6 +14,9 @@ tests = [
+     # ("¬(⊥ ∧ x)"),
+     # ("⊤ U[0, 5] ⊥"),
+     # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++    # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++    # ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
++    # ("(a U[1, 2] b) U[3, 5] c"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+     ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+@@ -31,21 +34,39 @@ tests = [
+ for stl in tests:
+     print(stl)
+     smtlib = compiler.stl_to_smtlib(stl)
+-    transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+-    formula = tseitin.cnf_to_smt(transformed)
+-    print(formula)
++    formula = tseitin.tseitin_to_smt(smtlib)
++    # print(formula)
+     # print(tseitin.cnf_to_z3(transformed))
+     # tseitin.evaluate(transformed, mapping)
+ 
+-    measures.all_clauses(formula)
++    measures.all_clauses(formula, 'smt/clauses.smt2')
+ 
+     # use z3 to check satisfiability
+-    s = z3.Solver()
++    s1 = z3.Solver()
+     # formula is in clauses.smt2
+-    s.from_file('smt/clauses.smt2')
+-    print(s.check())
+-    if s.check() == z3.sat:
+-        print(s.model())
++    s1.from_file('smt/clauses.smt2')
++    print('s1', formula)
++    print(s1.check())
++    if s1.check() == z3.sat:
++        print(s1.model())
++    
++    print()
++    not_formula = tseitin.tseitin_to_smt('(not ' + smtlib + ')')
++    measures.all_clauses(not_formula, 'smt/not_clauses.smt2')
++    print('s2', not_formula)
++    s2 = z3.Solver()
++    s2.from_file('smt/not_clauses.smt2')
++    print(s2.check())
++    if s2.check() == z3.sat:
++        print(s2.model())
++
++
+ 
++    # if s1.check() == z3.sat and s2.check() == z3.sat:
++    #     print("inconclusive")
++    # elif s2.check() == z3.unsat:
++    #     print("True")
++    # elif s1.check() == z3.unsat:
++    #     print("False")
+ 
+     print()
+diff --git a/measures.py b/measures.py
+index 014e837..bd7714c 100644
+--- a/measures.py
++++ b/measures.py
+@@ -33,13 +33,12 @@ def declare_helpers(formula):
+     clauses.append('(assert ' + formula + ')')
+     return clauses
+ 
+-# TODO: define way to pass in measurements
+ def measured(timeseries_csv):
+     # csv with columns: signal, time, epsilon, delta, measurement
+     df = pandas.read_csv(timeseries_csv)
+-    # assert that epsilon is the same for all instances of a signal
+-    if len(set(df['epsilon'])) != 1:
+-        raise ValueError('Epsilon must be the same for all instances of a signal')
++    # # assert that epsilon is the same for all instances of a signal
++    # if len(set(df['epsilon'])) != 1:
++    #     raise ValueError('Epsilon must be the same for all instances of a signal')
+     # map signal to epsilon
+     epsilon = {signal: df['epsilon'][0] for signal in set(df['signal'])}
+     # map signal to time to delta so that deltas[signal][time] = delta
+@@ -53,7 +52,7 @@ def measured(timeseries_csv):
+ 
+     return epsilon, deltas, set(df['signal']), set(df['time']), measurements
+ 
+-def all_clauses(formula):
++def all_clauses(formula, file):
+     epsilon, deltas, signals, times, measurements = measured('data/timeseries.csv')
+     clauses = []
+     clauses.append('(set-logic QF_LRA)')
+@@ -63,6 +62,6 @@ def all_clauses(formula):
+     clauses.append('(check-sat)')
+ 
+     # create file with clauses
+-    with open('smt/clauses.smt2', 'w') as f:
++    with open(file, 'w') as f:
+         for clause in clauses:
+             f.write(clause + '\n')
+\ No newline at end of file
+diff --git a/smt/clauses.smt2 b/smt/clauses.smt2
+index 64c1f66..7f5e6e7 100644
+--- a/smt/clauses.smt2
++++ b/smt/clauses.smt2
+@@ -1,54 +1,107 @@
+ (set-logic QF_LRA)
+ (set-option :print-success false)
+-(declare-const ox Real)
+-(assert (and (<= (- 0.5) ox) (<= ox 0.5)))
+-(declare-const x1 Real)
+-(declare-const ex1 Real)
+-(assert (and (<= (- 0.5) ex1) (<= ex1 0.5)))
+-(declare-const mx1 Real)
+-(assert (= mx1 3))
+-(assert (= (+ x1 ox ex1) mx1))
+-(declare-const x2 Real)
+-(declare-const ex2 Real)
+-(assert (and (<= (- 0.5) ex2) (<= ex2 0.5)))
+-(declare-const mx2 Real)
+-(assert (= mx2 4))
+-(assert (= (+ x2 ox ex2) mx2))
+-(declare-const x3 Real)
+-(declare-const ex3 Real)
+-(assert (and (<= (- 0.5) ex3) (<= ex3 0.5)))
+-(declare-const mx3 Real)
+-(assert (= mx3 5))
+-(assert (= (+ x3 ox ex3) mx3))
+-(declare-const oz Real)
+-(assert (and (<= (- 0.5) oz) (<= oz 0.5)))
+-(declare-const z1 Real)
+-(declare-const ez1 Real)
+-(assert (and (<= (- 0.5) ez1) (<= ez1 0.5)))
+-(declare-const mz1 Real)
+-(assert (= mz1 3))
+-(assert (= (+ z1 oz ez1) mz1))
+-(declare-const z2 Real)
+-(declare-const ez2 Real)
+-(assert (and (<= (- 0.5) ez2) (<= ez2 0.5)))
+-(declare-const mz2 Real)
+-(assert (= mz2 3))
+-(assert (= (+ z2 oz ez2) mz2))
+-(declare-const z3 Real)
+-(declare-const ez3 Real)
+-(assert (and (<= (- 0.5) ez3) (<= ez3 0.5)))
+-(declare-const mz3 Real)
+-(assert (= mz3 5))
+-(assert (= (+ z3 oz ez3) mz3))
+-(declare-const p9 Bool)
+-(declare-const p8 Bool)
+-(declare-const p5 Bool)
+-(declare-const p4 Bool)
+-(declare-const p10 Bool)
++(declare-const oa Real)
++(assert (and (<= (- 0.0) oa) (<= oa 0.0)))
++(declare-const a0 Real)
++(declare-const ea0 Real)
++(assert (and (<= (- 0.0) ea0) (<= ea0 0.0)))
++(declare-const ma0 Real)
++(assert (= ma0 3))
++(assert (= (+ a0 oa ea0) ma0))
++(declare-const a1 Real)
++(declare-const ea1 Real)
++(assert (and (<= (- 0.0) ea1) (<= ea1 0.0)))
++(declare-const ma1 Real)
++(assert (= ma1 3))
++(assert (= (+ a1 oa ea1) ma1))
++(declare-const a2 Real)
++(declare-const ea2 Real)
++(assert (and (<= (- 0.0) ea2) (<= ea2 0.0)))
++(declare-const ma2 Real)
++(assert (= ma2 3))
++(assert (= (+ a2 oa ea2) ma2))
++(declare-const a3 Real)
++(declare-const ea3 Real)
++(assert (and (<= (- 0.0) ea3) (<= ea3 0.0)))
++(declare-const ma3 Real)
++(assert (= ma3 3))
++(assert (= (+ a3 oa ea3) ma3))
++(declare-const a4 Real)
++(declare-const ea4 Real)
++(assert (and (<= (- 0.0) ea4) (<= ea4 0.0)))
++(declare-const ma4 Real)
++(assert (= ma4 3))
++(assert (= (+ a4 oa ea4) ma4))
++(declare-const oc Real)
++(assert (and (<= (- 0.0) oc) (<= oc 0.0)))
++(declare-const c0 Real)
++(declare-const ec0 Real)
++(assert (and (<= (- 0.5) ec0) (<= ec0 0.5)))
++(declare-const mc0 Real)
++(assert (= mc0 2))
++(assert (= (+ c0 oc ec0) mc0))
++(declare-const c1 Real)
++(declare-const ec1 Real)
++(assert (and (<= (- 0.5) ec1) (<= ec1 0.5)))
++(declare-const mc1 Real)
++(assert (= mc1 2))
++(assert (= (+ c1 oc ec1) mc1))
++(declare-const c2 Real)
++(declare-const ec2 Real)
++(assert (and (<= (- 0.5) ec2) (<= ec2 0.5)))
++(declare-const mc2 Real)
++(assert (= mc2 2))
++(assert (= (+ c2 oc ec2) mc2))
++(declare-const c3 Real)
++(declare-const ec3 Real)
++(assert (and (<= (- 0.5) ec3) (<= ec3 0.5)))
++(declare-const mc3 Real)
++(assert (= mc3 2))
++(assert (= (+ c3 oc ec3) mc3))
++(declare-const c4 Real)
++(declare-const ec4 Real)
++(assert (and (<= (- 0.5) ec4) (<= ec4 0.5)))
++(declare-const mc4 Real)
++(assert (= mc4 2))
++(assert (= (+ c4 oc ec4) mc4))
++(declare-const ob Real)
++(assert (and (<= (- 0.0) ob) (<= ob 0.0)))
++(declare-const b0 Real)
++(declare-const eb0 Real)
++(assert (and (<= (- 0.0) eb0) (<= eb0 0.0)))
++(declare-const mb0 Real)
++(assert (= mb0 1))
++(assert (= (+ b0 ob eb0) mb0))
++(declare-const b1 Real)
++(declare-const eb1 Real)
++(assert (and (<= (- 0.0) eb1) (<= eb1 0.0)))
++(declare-const mb1 Real)
++(assert (= mb1 1))
++(assert (= (+ b1 ob eb1) mb1))
++(declare-const b2 Real)
++(declare-const eb2 Real)
++(assert (and (<= (- 0.0) eb2) (<= eb2 0.0)))
++(declare-const mb2 Real)
++(assert (= mb2 1))
++(assert (= (+ b2 ob eb2) mb2))
++(declare-const b3 Real)
++(declare-const eb3 Real)
++(assert (and (<= (- 0.0) eb3) (<= eb3 0.0)))
++(declare-const mb3 Real)
++(assert (= mb3 1))
++(assert (= (+ b3 ob eb3) mb3))
++(declare-const b4 Real)
++(declare-const eb4 Real)
++(assert (and (<= (- 0.0) eb4) (<= eb4 0.0)))
++(declare-const mb4 Real)
++(assert (= mb4 1))
++(assert (= (+ b4 ob eb4) mb4))
+ (declare-const p2 Bool)
++(declare-const p4 Bool)
+ (declare-const p7 Bool)
+-(declare-const p3 Bool)
++(declare-const p5 Bool)
+ (declare-const p1 Bool)
++(declare-const p3 Bool)
+ (declare-const p6 Bool)
+-(assert (and (or (not p2) p1) (or p2 (not p1)) (or (not p5) p3) (or (not p5) p4) (or p5 (not p3) (not p4)) (or (not p9) p6) (or (not p9) p7) (or (not p9) p8) (or p9 (not p6) (not p7) (not p8)) (or (not p2) p10) (or (not p5) p10) (or (not p9) p10) (or (not p10) p2 p5 p9) (or p10) (or (not p1) (>= z1 2)) (or p1 (not (>= z1 2))) (or (not p2) (and p1)) (or p2 (not (and p1))) (or (not p3) (>= x1 3)) (or p3 (not (>= x1 3))) (or (not p4) (>= z2 2)) (or p4 (not (>= z2 2))) (or (not p5) (and p3 p4)) (or p5 (not (and p3 p4))) (or (not p6) (>= x1 3)) (or p6 (not (>= x1 3))) (or (not p7) (>= x2 3)) (or p7 (not (>= x2 3))) (or (not p8) (>= z3 2)) (or p8 (not (>= z3 2))) (or (not p9) (and p6 p7 p8)) (or p9 (not (and p6 p7 p8)))))
++(assert (and (or (not p2) (>= (+ a0 b0) 4)) (or (not p2) (>= (+ a1 b1) 4)) (or (not p2) p1) (or p2 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not p1)) (or (not p4) (>= (+ a0 b0) 4)) (or (not p4) (>= (+ a1 b1) 4)) (or (not p4) (>= (+ a2 b2) 4)) (or (not p4) p3) (or p4 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not (>= (+ a2 b2) 4)) (not p3)) (or (not p6) (>= (+ a0 b0) 4)) (or (not p6) (>= (+ a1 b1) 4)) (or (not p6) (>= (+ a2 b2) 4)) (or (not p6) (>= (+ a3 b3) 4)) (or (not p6) p5) (or p6 (not (>= (+ a0 b0) 4)) (not (>= (+ a1 b1) 4)) (not (>= (+ a2 b2) 4)) (not (>= (+ a3 b3) 4)) (not p5)) (or (not p2) p7) (or (not p4) p7) (or (not p6) p7) (or (not p7) p2 p4 p6) (or p7) (or (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= c2 2)) (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= (+ a2 b2) 4) (>= c3 2)) (and (>= (+ a0 b0) 4) (>= (+ a1 b1) 4) (>= (+ a2 b2) 4) (>= (+ a3 b3) 4) (>= c4 2)))))
+ (check-sat)
+diff --git a/tseitin.py b/tseitin.py
+index b447377..7e4fa36 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -66,20 +66,28 @@ def tseitin_transformation(formula, mapping, counter):
+ 
+     return new_variable, counter
+ 
+-def tseitin_to_cnf(formula):
++def tseitin_to_smt(formula):
++    # Perform Tseitin transformation
+     mapping = {'clauses': []}
+     counter = 0
+     new_formula, counter = tseitin_transformation(formula, mapping, counter)
+     mapping['clauses'].append([new_formula])
+ 
+-    # add back the non-boolean operations
+-    for variable, subformula in mapping.items():
+-        if variable not in ['clauses', new_formula]:
+-            mapping['clauses'].append([f'not {variable}', subformula])
+-            mapping['clauses'].append([variable, f'not {subformula}'])
+-
+-    return mapping['clauses'], mapping
++    # Translate CNF to SMT-LIB syntax
++    smt_list = []
++    for clause in mapping['clauses']:
++        smt_clause = []
++        for lit in clause:
++            if "not" in lit:
++                smt_clause.append(f'(not {lit.replace("not ", "")})')
++            else:
++                smt_clause.append(lit)
++        smt_list.append(f'(or {" ".join(smt_clause)})')
++    
++    smt_list.append(formula)
+ 
++    # Return SMT-LIB representation
++    return f'(and {" ".join(smt_list)})'
+ 
+ def cnf_to_z3(cnf_list):
+     vars = {}
+@@ -145,15 +153,31 @@ def evaluate(transformed, mapping):
+         print("UNSAT")
+         return False
+ 
+-def cnf_to_smt(cnf_list):
+-    smt_list = []
+-    for clause in cnf_list:
+-        smt_clause = []
+-        for lit in clause:
+-            if "not" in lit:
+-                lit = lit.replace("not ", "") # Remove 'not' from literal
+-                smt_clause.append(f'(not {lit})') # Apply 'not' as per SMT-lib syntax
+-            else:
+-                smt_clause.append(lit)
+-        smt_list.append(f'(or {" ".join(smt_clause)})')
+-    return f'(and {" ".join(smt_list)})'
++
++# def tseitin_to_cnf(formula):
++#     mapping = {'clauses': []}
++#     counter = 0
++#     new_formula, counter = tseitin_transformation(formula, mapping, counter)
++#     mapping['clauses'].append([new_formula])
++
++#     # add back the non-boolean operations
++#     for variable, subformula in mapping.items():
++#         if variable in ['clauses']:
++#             continue
++#         mapping['clauses'].append([f'not {variable}', subformula])
++#         mapping['clauses'].append([variable, f'not {subformula}'])
++
++#     return mapping['clauses'], mapping
++
++# def cnf_to_smt(cnf_list):
++#     smt_list = []
++#     for clause in cnf_list:
++#         smt_clause = []
++#         for lit in clause:
++#             if "not" in lit:
++#                 lit = lit.replace("not ", "") # Remove 'not' from literal
++#                 smt_clause.append(f'(not {lit})') # Apply 'not' as per SMT-lib syntax
++#             else:
++#                 smt_clause.append(lit)
++#         smt_list.append(f'(or {" ".join(smt_clause)})')
++#     return f'(and {" ".join(smt_list)})'
+\ No newline at end of file
+
+commit db7da5bd3534b5f92f67e7bbd42bd243cad920a3
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Fri Jun 23 13:13:39 2023 +0200
+
+    testing RHS UNTIL expansion
+
+diff --git a/compiler.py b/compiler.py
+index f2daeeb..3f72f9e 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -244,7 +244,8 @@ def test_stl_to_smtlib():
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+-        ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++        # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++        ("(x ≥ 3) U[3, 5] ((z ≥ 2) U[1, 2] (y ≥ 5))"),
+         # ("(a U[1, 2] b) U[3, 5] c"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+
+commit 54789da12de6bed4f4f573f805bee481e233b2ea
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 22 15:51:09 2023 +0200
+
+    nesting UNTIL statements works (at least, for LHS) - close #15
+
+diff --git a/compiler.py b/compiler.py
+index bd6c5e3..f2daeeb 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -176,24 +176,24 @@ def replace_vars_with_time(expr, time):
+ 
+     return expr
+ 
+-def translate(node):
++def translate(node, base_time=0):
+     kind = node[0]
+     if kind == 'NUMBER':
+         return str(node[1])
+     elif kind == 'VAR':
+-        return node[1]
++        return node[1] + str(base_time)
+     elif kind == 'COEFF':
+         coeff, var = node[1]
+-        return f'(* {coeff} {var})'
++        return f'(* {coeff} {var}{base_time})'
+     elif kind == 'PLUS':
+         _, left, right = node
+-        left_code = translate(left)
+-        right_code = translate(right)
++        left_code = translate(left, base_time)
++        right_code = translate(right, base_time)
+         return f'(+ {left_code} {right_code})'
+     elif kind == 'GEQ':
+         _, left, right = node
+-        left_code = translate(left)
+-        right_code = translate(right)
++        left_code = translate(left, base_time)
++        right_code = translate(right, base_time)
+         return f'(>= {left_code} {right_code})'
+     elif kind == 'BOOL_OP':
+         if node[1] == '⊤':
+@@ -201,8 +201,8 @@ def translate(node):
+         elif node[1] == '⊥':
+             return 'false'
+         op, left, right = node[1:]
+-        left_code = translate(left)
+-        right_code = translate(right)
++        left_code = translate(left, base_time)
++        right_code = translate(right, base_time)
+         if op == '∨':
+             op = 'or'
+         elif op == '∧':
+@@ -214,19 +214,17 @@ def translate(node):
+         return f'({op} {left_code} {right_code})'
+     elif kind == 'NOT':
+         _, expr = node
+-        expr_code = translate(expr)
++        expr_code = translate(expr, base_time)
+         return f'(not {expr_code})'
+     elif kind == 'UNTIL':
+-        start_time, end_time, first_condition, second_condition = node[1:]
+-        start_time = int(translate(start_time))
+-        end_time = int(translate(end_time))
+-        first_condition_code = translate(first_condition)
+-        second_condition_code = translate(second_condition)
+-
++        _, start_time, end_time, first_condition, second_condition = node
++        start_time = int(translate(start_time, base_time))
++        end_time = int(translate(end_time, base_time))
++        
+         or_expr = []
+         for k in range(start_time, end_time + 1):
+-            and_expr = [replace_vars_with_time(first_condition_code, l) for l in range(0, k)]
+-            or_expr.append(f'(and {" ".join(and_expr)} {replace_vars_with_time(second_condition_code, k)})')
++            and_expr = [translate(first_condition, base_time+l) for l in range(0, k)]
++            or_expr.append(f'(and {" ".join(and_expr)} {translate(second_condition, base_time+k)})')
+ 
+         return f'(or {" ".join(or_expr)})'
+ 
+@@ -246,8 +244,8 @@ def test_stl_to_smtlib():
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+-        # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
+-        ("(a U[1, 2] b) U[3, 5] c"),
++        ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++        # ("(a U[1, 2] b) U[3, 5] c"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+
+commit b01baafeca2dafd6cd1dd2b5af92c666ee0a937c
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 22 14:02:18 2023 +0200
+
+    progress
+
+diff --git a/compiler.py b/compiler.py
+index 97469c4..bd6c5e3 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -150,6 +150,8 @@ def replace_vars_with_time(expr, time):
+ 
+     # Find all words consisting only of alphabetical characters
+     words = re.findall('[a-zA-Z]+', expr)
++    # Find all words consisting of alphabetical characters followed by a number
++    words_with_time = re.findall('[a-zA-Z]+\d+', expr)
+ 
+     for word in words:
+         # Skip if word is in the ignore list
+@@ -158,6 +160,19 @@ def replace_vars_with_time(expr, time):
+ 
+         # Replace each occurrence of the word in the expression with the word followed by the time value
+         expr = re.sub(r'\b' + word + r'\b', word + str(time), expr)
++    
++    for word in words_with_time:
++        # Skip if word is in the ignore list
++        if word in ignore_list:
++            continue
++
++        # Replace each occurrence of the word in the expression with the word followed by the new time value, which is the number after the word plus the passed time
++        # get old time by stripping word of alphabetical characters
++        old_time = int(re.sub('[a-zA-Z]+', '', word))
++        # get new time by adding old time to passed time
++        new_time = old_time + time
++        # replace word with new word
++        expr = re.sub(r'\b' + word + r'\b', word[:-len(str(old_time))] + str(new_time), expr)
+ 
+     return expr
+ 
+
+commit f085388a1267beaba2f565912bdcdd87c108b265
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jun 21 15:43:24 2023 +0200
+
+    hotfix for browsing until statements
+
+diff --git a/compiler.py b/compiler.py
+index 47abf0d..97469c4 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -1,8 +1,6 @@
+ import re
+ from z3 import *
+ import tseitin
+-from z3 import Solver, parse_smt2_string
+-import pycosat
+ 
+ def stl_to_smtlib(stl_code):
+     # Convert STL to tokens
+@@ -212,7 +210,7 @@ def translate(node):
+ 
+         or_expr = []
+         for k in range(start_time, end_time + 1):
+-            and_expr = [replace_vars_with_time(first_condition_code, l) for l in range(start_time, k)]
++            and_expr = [replace_vars_with_time(first_condition_code, l) for l in range(0, k)]
+             or_expr.append(f'(and {" ".join(and_expr)} {replace_vars_with_time(second_condition_code, k)})')
+ 
+         return f'(or {" ".join(or_expr)})'
+@@ -233,7 +231,8 @@ def test_stl_to_smtlib():
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+         # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+-        # ("(x ≥ 3) U[1, 2] (z ≥ 2)"),
++        # ("((x ≥ 3) U[1, 2] (z ≥ 2)) U[3, 5] (y ≥ 5)"),
++        ("(a U[1, 2] b) U[3, 5] c"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+@@ -251,13 +250,13 @@ def test_stl_to_smtlib():
+         smtlib = stl_to_smtlib(stl)
+         print(stl)
+         print(smtlib)
+-        transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+-        # print(f'{smtlib} turns into {transformed}\n')
++        # transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
++        # # print(f'{smtlib} turns into {transformed}\n')
+         
+-        print(transformed)
++        # print(transformed)
+         
+-        print(tseitin.cnf_to_smt(transformed))
+-        tseitin.evaluate(transformed, mapping)
++        # print(tseitin.cnf_to_smt(transformed))
++        # tseitin.evaluate(transformed, mapping)
+ 
+         print()
+ 
+diff --git a/tseitin.py b/tseitin.py
+index 30f0610..b447377 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -34,7 +34,7 @@ def decompose(formula):
+ def tseitin_transformation(formula, mapping, counter):
+     if formula in ['true', 'false', '⊤', '⊥']:
+         return formula, counter
+-    if re.match(r'\(>= \(\+[^\)]*\) \d+\)', formula):
++    if re.match(r'\(>= \(\+[^\)]*\) [a-z0-9_]+\)', formula):
+         return formula, counter
+     if formula[0] != '(':
+         return formula, counter
+
+commit 20e9af0a3cf72fad629c72d659acbca9a8c2e54d
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue Jun 20 13:05:58 2023 +0200
+
+    allow for sum of reals
+
+diff --git a/data/timeseries.csv b/data/timeseries.csv
+index 601907a..5dd3f20 100644
+--- a/data/timeseries.csv
++++ b/data/timeseries.csv
+@@ -1,7 +1,10 @@
+ ﻿signal,time,epsilon,delta,measurement
+-x,1,0.5,0.5,3
+-x,2,0.5,0.5,4
+-x,3,0.5,0.5,5
+-z,1,0.5,0.5,3
+-z,2,0.5,0.5,3
+-z,3,0.5,0.5,5
+\ No newline at end of file
++a,2,0.5,0.5,2
++a,3,0.5,0.5,2
++a,4,0.5,0.5,2
++b,2,0.5,0.5,2
++b,3,0.5,0.5,2
++b,4,0.5,0.5,2
++c,2,0.5,0.5,0
++c,3,0.5,0.5,2
++c,4,0.5,0.5,2
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index 3f62032..4746208 100644
+--- a/main.py
++++ b/main.py
+@@ -13,9 +13,9 @@ tests = [
+     # ("¬(⊤ ∨ x)"),
+     # ("¬(⊥ ∧ x)"),
+     # ("⊤ U[0, 5] ⊥"),
+-    ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++    # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+-    # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
++    ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+     # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+     # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
+     # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
+diff --git a/smt/clauses.smt2 b/smt/clauses.smt2
+index 137584c..64c1f66 100644
+--- a/smt/clauses.smt2
++++ b/smt/clauses.smt2
+@@ -40,15 +40,15 @@
+ (declare-const mz3 Real)
+ (assert (= mz3 5))
+ (assert (= (+ z3 oz ez3) mz3))
+-(declare-const p7 Bool)
+-(declare-const p5 Bool)
+-(declare-const p2 Bool)
+-(declare-const p8 Bool)
+-(declare-const p6 Bool)
+ (declare-const p9 Bool)
+-(declare-const p10 Bool)
++(declare-const p8 Bool)
++(declare-const p5 Bool)
+ (declare-const p4 Bool)
++(declare-const p10 Bool)
++(declare-const p2 Bool)
++(declare-const p7 Bool)
+ (declare-const p3 Bool)
+ (declare-const p1 Bool)
+-(assert (and (or (not p2) p1) (or p2 (not p1)) (or (not p5) p3) (or (not p5) p4) (or p5 (not p3) (not p4)) (or (not p9) p6) (or (not p9) p7) (or (not p9) p8) (or p9 (not p6) (not p7) (not p8)) (or p10 (not p2)) (or p10 (not p5)) (or p10 (not p9)) (or (not p10) p2 p5 p9) (or p10) (or p1 (>= z1 2)) (or (not p1) (not (>= z1 2))) (or p2 (and p1)) (or (not p2) (not (and p1))) (or p3 (>= x1 3)) (or (not p3) (not (>= x1 3))) (or p4 (>= z2 2)) (or (not p4) (not (>= z2 2))) (or p5 (and p3 p4)) (or (not p5) (not (and p3 p4))) (or p6 (>= x1 3)) (or (not p6) (not (>= x1 3))) (or p7 (>= x2 3)) (or (not p7) (not (>= x2 3))) (or p8 (>= z3 2)) (or (not p8) (not (>= z3 2))) (or p9 (and p6 p7 p8)) (or (not p9) (not (and p6 p7 p8)))))
++(declare-const p6 Bool)
++(assert (and (or (not p2) p1) (or p2 (not p1)) (or (not p5) p3) (or (not p5) p4) (or p5 (not p3) (not p4)) (or (not p9) p6) (or (not p9) p7) (or (not p9) p8) (or p9 (not p6) (not p7) (not p8)) (or (not p2) p10) (or (not p5) p10) (or (not p9) p10) (or (not p10) p2 p5 p9) (or p10) (or (not p1) (>= z1 2)) (or p1 (not (>= z1 2))) (or (not p2) (and p1)) (or p2 (not (and p1))) (or (not p3) (>= x1 3)) (or p3 (not (>= x1 3))) (or (not p4) (>= z2 2)) (or p4 (not (>= z2 2))) (or (not p5) (and p3 p4)) (or p5 (not (and p3 p4))) (or (not p6) (>= x1 3)) (or p6 (not (>= x1 3))) (or (not p7) (>= x2 3)) (or p7 (not (>= x2 3))) (or (not p8) (>= z3 2)) (or p8 (not (>= z3 2))) (or (not p9) (and p6 p7 p8)) (or p9 (not (and p6 p7 p8)))))
+ (check-sat)
+diff --git a/tseitin.py b/tseitin.py
+index ce346a4..30f0610 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -34,6 +34,8 @@ def decompose(formula):
+ def tseitin_transformation(formula, mapping, counter):
+     if formula in ['true', 'false', '⊤', '⊥']:
+         return formula, counter
++    if re.match(r'\(>= \(\+[^\)]*\) \d+\)', formula):
++        return formula, counter
+     if formula[0] != '(':
+         return formula, counter
+     operation, operands = decompose(formula)
+
+commit 54c2cff9b80c18accb8eb736e871bda19139fb28
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 19 16:44:41 2023 +0200
+
+    SO SO fragile but it works
+
+diff --git a/compiler.py b/compiler.py
+index 4cdeced..47abf0d 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -232,7 +232,8 @@ def test_stl_to_smtlib():
+         # ("¬(⊤ ∨ x)"),
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+-        ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++        # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++        # ("(x ≥ 3) U[1, 2] (z ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+@@ -260,4 +261,4 @@ def test_stl_to_smtlib():
+ 
+         print()
+ 
+-# test_stl_to_smtlib()
+\ No newline at end of file
++test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index e136248..3f62032 100644
+--- a/main.py
++++ b/main.py
+@@ -29,9 +29,13 @@ tests = [
+ 
+ 
+ for stl in tests:
++    print(stl)
+     smtlib = compiler.stl_to_smtlib(stl)
+-    transformed, _ = tseitin.tseitin_to_cnf(smtlib)
++    transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+     formula = tseitin.cnf_to_smt(transformed)
++    print(formula)
++    # print(tseitin.cnf_to_z3(transformed))
++    # tseitin.evaluate(transformed, mapping)
+ 
+     measures.all_clauses(formula)
+ 
+diff --git a/tseitin.py b/tseitin.py
+index f04a6bb..ce346a4 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -27,6 +27,8 @@ def decompose(formula):
+                 operand = ""
+         elif depth > 0:
+             operand += char
++    if operand:
++        operands.append(operand)
+     return operation, operands
+ 
+ def tseitin_transformation(formula, mapping, counter):
+@@ -45,16 +47,19 @@ def tseitin_transformation(formula, mapping, counter):
+     new_variable = f'p{counter}'
+     mapping[new_variable] = new_formula
+ 
++    # not A turns into (A or p) and (not A or not p)
+     if operation == 'not':
+         mapping['clauses'].append([new_variable, new_operands[0]])
+         mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
++    # A and B turns into (not A or not B or p) and (A or not p) and (B or not p)
+     elif operation == 'and':
+         for operand in new_operands:
+             mapping['clauses'].append([f'not {new_variable}', operand])
+         mapping['clauses'].append([new_variable] + [f'not {operand}' for operand in new_operands])
++    # A or B turns into (not A or p) and (not B or p) and (A or B or not p)
+     elif operation == 'or':
+         for operand in new_operands:
+-            mapping['clauses'].append([new_variable, f'not {operand}'])
++            mapping['clauses'].append([f'not {operand}', new_variable])
+         mapping['clauses'].append([f'not {new_variable}'] + new_operands)
+ 
+     return new_variable, counter
+@@ -65,11 +70,11 @@ def tseitin_to_cnf(formula):
+     new_formula, counter = tseitin_transformation(formula, mapping, counter)
+     mapping['clauses'].append([new_formula])
+ 
+-    # Add back the non-boolean operations
+-    for var, form in mapping.items():
+-        if var not in ['clauses', new_formula] and form[0] == '(':
+-            mapping['clauses'].append([var, form])
+-            mapping['clauses'].append([f'not {var}', f'not {form}'])
++    # add back the non-boolean operations
++    for variable, subformula in mapping.items():
++        if variable not in ['clauses', new_formula]:
++            mapping['clauses'].append([f'not {variable}', subformula])
++            mapping['clauses'].append([variable, f'not {subformula}'])
+ 
+     return mapping['clauses'], mapping
+ 
+@@ -141,5 +146,12 @@ def evaluate(transformed, mapping):
+ def cnf_to_smt(cnf_list):
+     smt_list = []
+     for clause in cnf_list:
+-        smt_list.append(f'(or {" ".join("(" + lit + ")" if "not" in lit else lit for lit in clause)})')
+-    return f'(and {" ".join(smt_list)})'
+\ No newline at end of file
++        smt_clause = []
++        for lit in clause:
++            if "not" in lit:
++                lit = lit.replace("not ", "") # Remove 'not' from literal
++                smt_clause.append(f'(not {lit})') # Apply 'not' as per SMT-lib syntax
++            else:
++                smt_clause.append(lit)
++        smt_list.append(f'(or {" ".join(smt_clause)})')
++    return f'(and {" ".join(smt_list)})'
+
+commit cc875dcafe10327779765083262f265c01ed15bd
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 19 14:02:58 2023 +0200
+
+    small documentation thing, albeit still returning unsat
+
+diff --git a/README.md b/README.md
+index 8de0326..af117e0 100644
+--- a/README.md
++++ b/README.md
+@@ -4,5 +4,5 @@ pip install z3-solver
+ ```
+ Run the program:
+ ```
+-python3 compiler.py
++python3 main.py
+ ```
+\ No newline at end of file
+
+commit 5f5aef431fdf5cd7ecd8d95cb3f12bf966cd28c1
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 19 14:01:21 2023 +0200
+
+    csv input - close #11 #13
+
+diff --git a/compiler.py b/compiler.py
+index 92d76b1..4cdeced 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -260,4 +260,4 @@ def test_stl_to_smtlib():
+ 
+         print()
+ 
+-test_stl_to_smtlib()
+\ No newline at end of file
++# test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/data/timeseries.csv b/data/timeseries.csv
+new file mode 100644
+index 0000000..601907a
+--- /dev/null
++++ b/data/timeseries.csv
+@@ -0,0 +1,7 @@
++﻿signal,time,epsilon,delta,measurement
++x,1,0.5,0.5,3
++x,2,0.5,0.5,4
++x,3,0.5,0.5,5
++z,1,0.5,0.5,3
++z,2,0.5,0.5,3
++z,3,0.5,0.5,5
+\ No newline at end of file
+diff --git a/main.py b/main.py
+index f3e60fe..e136248 100644
+--- a/main.py
++++ b/main.py
+@@ -1,4 +1,4 @@
+-import compiler, trajectory, measures, tseitin
++import compiler, measures, tseitin, z3
+ 
+ tests = [
+     # ("⊤"), 
+@@ -27,14 +27,21 @@ tests = [
+     # ("1 ≥ 2")
+ ]
+ 
+-def main():
+-    for stl in tests:
+-        smtlib = compiler.stl_to_smtlib(stl)
+-        print(stl)
+-        print(smtlib)
+-        transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+-        formula = tseitin.cnf_to_smt(transformed)
+ 
+-        
++for stl in tests:
++    smtlib = compiler.stl_to_smtlib(stl)
++    transformed, _ = tseitin.tseitin_to_cnf(smtlib)
++    formula = tseitin.cnf_to_smt(transformed)
+ 
+-        print()
++    measures.all_clauses(formula)
++
++    # use z3 to check satisfiability
++    s = z3.Solver()
++    # formula is in clauses.smt2
++    s.from_file('smt/clauses.smt2')
++    print(s.check())
++    if s.check() == z3.sat:
++        print(s.model())
++
++
++    print()
+diff --git a/measures.py b/measures.py
+index 79f1b69..014e837 100644
+--- a/measures.py
++++ b/measures.py
+@@ -1,5 +1,4 @@
+ import re
+-import csv
+ import pandas
+ 
+ def is_possible(epsilon, deltas, signals, times, measurements):
+@@ -10,6 +9,10 @@ def is_possible(epsilon, deltas, signals, times, measurements):
+         clauses.append('(declare-const o' + str(signal) + ' Real)')
+         clauses.append('(assert (and (<= (- ' + str(epsilon[signal]) + ') o' + str(signal) + ') (<= o' + str(signal) + ' ' + str(epsilon[signal]) + ')))')
+         for time in times:
++            clauses.append('(declare-const ' + str(signal) + str(time) + ' Real)')
++            # Do we need to create bounds for xi? If so, #HACK
++            # clauses.append('(assert (and (<= (- 9999999999999) ' + str(signal) + str(time) + ') (<= ' + str(signal) + str(time) + ' 9999999999999)))')
++
+             clauses.append('(declare-const e' + str(signal) + str(time) + ' Real)')
+             clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') e' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
+             clauses.append('(declare-const m' + str(signal) + str(time) + ' Real)')
+@@ -21,16 +24,10 @@ def is_possible(epsilon, deltas, signals, times, measurements):
+ def declare_helpers(formula):
+     clauses = []
+     # turn all instances of "pi" in formula into declared Bools, where i is a natural number
+-    helperPattern = r'pi\d+'
+-    varPattern = r'(?![p])[a-z]\d+'
++    helperPattern = r'p\d+'
+ 
+     for pi in list(set(re.findall(helperPattern, formula))):
+         clauses.append('(declare-const ' + pi + ' Bool)')
+-    
+-    for xi in list(set(re.findall(varPattern, formula))):
+-        clauses.append('(declare-const ' + xi + ' Real)')
+-        # Do we need to create bounds for xi? If so, #HACK
+-        # clauses.append('(assert (and (<= (- 9999999999999) ' + xi + ') (<= ' + xi + ' 9999999999999)))')
+ 
+     # assumes original variables have already been declared
+     clauses.append('(assert ' + formula + ')')
+@@ -57,15 +54,15 @@ def measured(timeseries_csv):
+     return epsilon, deltas, set(df['signal']), set(df['time']), measurements
+ 
+ def all_clauses(formula):
+-    epsilon, deltas, signals, times, measurements = measured('timeseries.csv')
++    epsilon, deltas, signals, times, measurements = measured('data/timeseries.csv')
+     clauses = []
+     clauses.append('(set-logic QF_LRA)')
+     clauses.append('(set-option :print-success false)')
+     clauses.extend(is_possible(epsilon, deltas, signals, times, measurements))
+-    clauses.extend(declare_helpers(formula))
++    clauses.extend(declare_helpers(str(formula)))
+     clauses.append('(check-sat)')
+ 
+     # create file with clauses
+-    with open('clauses.smt2', 'w') as f:
++    with open('smt/clauses.smt2', 'w') as f:
+         for clause in clauses:
+             f.write(clause + '\n')
+\ No newline at end of file
+diff --git a/smt/clauses.smt2 b/smt/clauses.smt2
+new file mode 100644
+index 0000000..137584c
+--- /dev/null
++++ b/smt/clauses.smt2
+@@ -0,0 +1,54 @@
++(set-logic QF_LRA)
++(set-option :print-success false)
++(declare-const ox Real)
++(assert (and (<= (- 0.5) ox) (<= ox 0.5)))
++(declare-const x1 Real)
++(declare-const ex1 Real)
++(assert (and (<= (- 0.5) ex1) (<= ex1 0.5)))
++(declare-const mx1 Real)
++(assert (= mx1 3))
++(assert (= (+ x1 ox ex1) mx1))
++(declare-const x2 Real)
++(declare-const ex2 Real)
++(assert (and (<= (- 0.5) ex2) (<= ex2 0.5)))
++(declare-const mx2 Real)
++(assert (= mx2 4))
++(assert (= (+ x2 ox ex2) mx2))
++(declare-const x3 Real)
++(declare-const ex3 Real)
++(assert (and (<= (- 0.5) ex3) (<= ex3 0.5)))
++(declare-const mx3 Real)
++(assert (= mx3 5))
++(assert (= (+ x3 ox ex3) mx3))
++(declare-const oz Real)
++(assert (and (<= (- 0.5) oz) (<= oz 0.5)))
++(declare-const z1 Real)
++(declare-const ez1 Real)
++(assert (and (<= (- 0.5) ez1) (<= ez1 0.5)))
++(declare-const mz1 Real)
++(assert (= mz1 3))
++(assert (= (+ z1 oz ez1) mz1))
++(declare-const z2 Real)
++(declare-const ez2 Real)
++(assert (and (<= (- 0.5) ez2) (<= ez2 0.5)))
++(declare-const mz2 Real)
++(assert (= mz2 3))
++(assert (= (+ z2 oz ez2) mz2))
++(declare-const z3 Real)
++(declare-const ez3 Real)
++(assert (and (<= (- 0.5) ez3) (<= ez3 0.5)))
++(declare-const mz3 Real)
++(assert (= mz3 5))
++(assert (= (+ z3 oz ez3) mz3))
++(declare-const p7 Bool)
++(declare-const p5 Bool)
++(declare-const p2 Bool)
++(declare-const p8 Bool)
++(declare-const p6 Bool)
++(declare-const p9 Bool)
++(declare-const p10 Bool)
++(declare-const p4 Bool)
++(declare-const p3 Bool)
++(declare-const p1 Bool)
++(assert (and (or (not p2) p1) (or p2 (not p1)) (or (not p5) p3) (or (not p5) p4) (or p5 (not p3) (not p4)) (or (not p9) p6) (or (not p9) p7) (or (not p9) p8) (or p9 (not p6) (not p7) (not p8)) (or p10 (not p2)) (or p10 (not p5)) (or p10 (not p9)) (or (not p10) p2 p5 p9) (or p10) (or p1 (>= z1 2)) (or (not p1) (not (>= z1 2))) (or p2 (and p1)) (or (not p2) (not (and p1))) (or p3 (>= x1 3)) (or (not p3) (not (>= x1 3))) (or p4 (>= z2 2)) (or (not p4) (not (>= z2 2))) (or p5 (and p3 p4)) (or (not p5) (not (and p3 p4))) (or p6 (>= x1 3)) (or (not p6) (not (>= x1 3))) (or p7 (>= x2 3)) (or (not p7) (not (>= x2 3))) (or p8 (>= z3 2)) (or (not p8) (not (>= z3 2))) (or p9 (and p6 p7 p8)) (or (not p9) (not (and p6 p7 p8)))))
++(check-sat)
+
+commit 777e95faae6ce9307081c16c0c512b3d9fb20906
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Mon Jun 19 11:48:41 2023 +0200
+
+    rough draft
+
+diff --git a/compiler.py b/compiler.py
+index aedd650..92d76b1 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -254,6 +254,8 @@ def test_stl_to_smtlib():
+         # print(f'{smtlib} turns into {transformed}\n')
+         
+         print(transformed)
++        
++        print(tseitin.cnf_to_smt(transformed))
+         tseitin.evaluate(transformed, mapping)
+ 
+         print()
+diff --git a/main.py b/main.py
+new file mode 100644
+index 0000000..f3e60fe
+--- /dev/null
++++ b/main.py
+@@ -0,0 +1,40 @@
++import compiler, trajectory, measures, tseitin
++
++tests = [
++    # ("⊤"), 
++    # ("⊥"), 
++    # ("¬x"), 
++    # ("x ∨ y"), 
++    # ("x ∧ ¬y"), 
++    # ("¬(x ∧ y)"), 
++    # ("⊤ ∨ x"), 
++    # ("⊥ ∧ x"), 
++    # ("⊥ ∧ ⊥"), 
++    # ("¬(⊤ ∨ x)"),
++    # ("¬(⊥ ∧ x)"),
++    # ("⊤ U[0, 5] ⊥"),
++    ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++    # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
++    # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
++    # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
++    # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
++    # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
++    # ("2.95x ≥ 9"),
++    # ("3x + 2y ≥ 9"),
++    # ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
++    # ("2x ≥ 6 ∧ 3y ≥ 9"),
++    # ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥"),
++    # ("1 ≥ 2")
++]
++
++def main():
++    for stl in tests:
++        smtlib = compiler.stl_to_smtlib(stl)
++        print(stl)
++        print(smtlib)
++        transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
++        formula = tseitin.cnf_to_smt(transformed)
++
++        
++
++        print()
+diff --git a/measures.py b/measures.py
+index 5473ffb..79f1b69 100644
+--- a/measures.py
++++ b/measures.py
+@@ -11,13 +11,10 @@ def is_possible(epsilon, deltas, signals, times, measurements):
+         clauses.append('(assert (and (<= (- ' + str(epsilon[signal]) + ') o' + str(signal) + ') (<= o' + str(signal) + ' ' + str(epsilon[signal]) + ')))')
+         for time in times:
+             clauses.append('(declare-const e' + str(signal) + str(time) + ' Real)')
+-            clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') xe' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
+-
+-    # for measure in measurements declare and assert
+-
+-    # relations between measurements and states
+-    for measure in measurements:
+-        clauses.append('(assert (= (+ ' + str(measure)[1:] + ' o' + str(measure)[1] + ' e' + str(measure)[1:] + ') ' + str(measure) + '))')
++            clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') e' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
++            clauses.append('(declare-const m' + str(signal) + str(time) + ' Real)')
++            clauses.append('(assert (= m' + str(signal) + str(time) + ' ' + str(measurements[signal][time]) + '))')
++            clauses.append('(assert (= (+ ' + str(signal) + str(time) + ' o' + str(signal) + ' e' + str(signal) + str(time) + ') m' + str(signal) + str(time) + '))')
+ 
+     return clauses
+ 
+@@ -42,4 +39,33 @@ def declare_helpers(formula):
+ # TODO: define way to pass in measurements
+ def measured(timeseries_csv):
+     # csv with columns: signal, time, epsilon, delta, measurement
+-    pandas.read_csv(timeseries_csv)
+\ No newline at end of file
++    df = pandas.read_csv(timeseries_csv)
++    # assert that epsilon is the same for all instances of a signal
++    if len(set(df['epsilon'])) != 1:
++        raise ValueError('Epsilon must be the same for all instances of a signal')
++    # map signal to epsilon
++    epsilon = {signal: df['epsilon'][0] for signal in set(df['signal'])}
++    # map signal to time to delta so that deltas[signal][time] = delta
++    deltas = {signal: {} for signal in set(df['signal'])}
++    for index, row in df.iterrows():
++        deltas[row['signal']][row['time']] = row['delta']
++    # map signal to time to measurement so that measurements[signal][time] = measurement
++    measurements = {signal: {} for signal in set(df['signal'])}
++    for index, row in df.iterrows():
++        measurements[row['signal']][row['time']] = row['measurement']
++
++    return epsilon, deltas, set(df['signal']), set(df['time']), measurements
++
++def all_clauses(formula):
++    epsilon, deltas, signals, times, measurements = measured('timeseries.csv')
++    clauses = []
++    clauses.append('(set-logic QF_LRA)')
++    clauses.append('(set-option :print-success false)')
++    clauses.extend(is_possible(epsilon, deltas, signals, times, measurements))
++    clauses.extend(declare_helpers(formula))
++    clauses.append('(check-sat)')
++
++    # create file with clauses
++    with open('clauses.smt2', 'w') as f:
++        for clause in clauses:
++            f.write(clause + '\n')
+\ No newline at end of file
+
+commit b38a4da81864275016f3cba898c76edce25105fc
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Fri Jun 16 17:20:46 2023 +0200
+
+    relations between measurements and states
+
+diff --git a/measures.py b/measures.py
+index 8287c04..5473ffb 100644
+--- a/measures.py
++++ b/measures.py
+@@ -1,4 +1,6 @@
+ import re
++import csv
++import pandas
+ 
+ def is_possible(epsilon, deltas, signals, times, measurements):
+     # assume epsilons[signal] is bound for signal
+@@ -11,6 +13,12 @@ def is_possible(epsilon, deltas, signals, times, measurements):
+             clauses.append('(declare-const e' + str(signal) + str(time) + ' Real)')
+             clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') xe' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
+ 
++    # for measure in measurements declare and assert
++
++    # relations between measurements and states
++    for measure in measurements:
++        clauses.append('(assert (= (+ ' + str(measure)[1:] + ' o' + str(measure)[1] + ' e' + str(measure)[1:] + ') ' + str(measure) + '))')
++
+     return clauses
+ 
+ def declare_helpers(formula):
+@@ -32,4 +40,6 @@ def declare_helpers(formula):
+     return clauses
+ 
+ # TODO: define way to pass in measurements
+-# def measured(?):
+\ No newline at end of file
++def measured(timeseries_csv):
++    # csv with columns: signal, time, epsilon, delta, measurement
++    pandas.read_csv(timeseries_csv)
+\ No newline at end of file
+
+commit 27a97e6e322fb38575672b1a879dbe993214df4a
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 15 18:13:32 2023 +0200
+
+    process variable names in declare
+
+diff --git a/measures.py b/measures.py
+index e79d297..8287c04 100644
+--- a/measures.py
++++ b/measures.py
+@@ -1,8 +1,6 @@
+ import re
+ 
+-# def ground_truth():
+-
+-def is_possible(epsilon, deltas, signals, times):
++def is_possible(epsilon, deltas, signals, times, measurements):
+     # assume epsilons[signal] is bound for signal
+     # assume deltas[signal][time] is bound for signal at time
+     clauses = []
+@@ -18,13 +16,20 @@ def is_possible(epsilon, deltas, signals, times):
+ def declare_helpers(formula):
+     clauses = []
+     # turn all instances of "pi" in formula into declared Bools, where i is a natural number
+-    pattern = r'pi\d+'
+-    matches = re.findall(pattern, formula)
+-    matches = list(set(matches))
+-    for pi in matches:
++    helperPattern = r'pi\d+'
++    varPattern = r'(?![p])[a-z]\d+'
++
++    for pi in list(set(re.findall(helperPattern, formula))):
+         clauses.append('(declare-const ' + pi + ' Bool)')
++    
++    for xi in list(set(re.findall(varPattern, formula))):
++        clauses.append('(declare-const ' + xi + ' Real)')
++        # Do we need to create bounds for xi? If so, #HACK
++        # clauses.append('(assert (and (<= (- 9999999999999) ' + xi + ') (<= ' + xi + ' 9999999999999)))')
+ 
+     # assumes original variables have already been declared
+     clauses.append('(assert ' + formula + ')')
+     return clauses
+ 
++# TODO: define way to pass in measurements
++# def measured(?):
+\ No newline at end of file
+
+commit bbe79c1017a76508b5ce33f92d8487cfca114d71
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 15 17:27:08 2023 +0200
+
+    simple logic for smt-lib
+
+diff --git a/compiler.py b/compiler.py
+index 9e98673..aedd650 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -232,7 +232,7 @@ def test_stl_to_smtlib():
+         # ("¬(⊤ ∨ x)"),
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+-        # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++        ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+         # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+@@ -243,7 +243,7 @@ def test_stl_to_smtlib():
+         # ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
+         # ("2x ≥ 6 ∧ 3y ≥ 9"),
+         # ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥"),
+-        ("1 ≥ 2")
++        # ("1 ≥ 2")
+     ]
+ 
+     for stl in tests:
+diff --git a/measures.py b/measures.py
+index 8e3a93f..e79d297 100644
+--- a/measures.py
++++ b/measures.py
+@@ -1,3 +1,6 @@
++import re
++
++# def ground_truth():
+ 
+ def is_possible(epsilon, deltas, signals, times):
+     # assume epsilons[signal] is bound for signal
+@@ -11,3 +14,17 @@ def is_possible(epsilon, deltas, signals, times):
+             clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') xe' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
+ 
+     return clauses
++
++def declare_helpers(formula):
++    clauses = []
++    # turn all instances of "pi" in formula into declared Bools, where i is a natural number
++    pattern = r'pi\d+'
++    matches = re.findall(pattern, formula)
++    matches = list(set(matches))
++    for pi in matches:
++        clauses.append('(declare-const ' + pi + ' Bool)')
++
++    # assumes original variables have already been declared
++    clauses.append('(assert ' + formula + ')')
++    return clauses
++
+diff --git a/tseitin.py b/tseitin.py
+index 7899a0a..f04a6bb 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -137,3 +137,9 @@ def evaluate(transformed, mapping):
+     else:
+         print("UNSAT")
+         return False
++
++def cnf_to_smt(cnf_list):
++    smt_list = []
++    for clause in cnf_list:
++        smt_list.append(f'(or {" ".join("(" + lit + ")" if "not" in lit else lit for lit in clause)})')
++    return f'(and {" ".join(smt_list)})'
+\ No newline at end of file
+
+commit 3f8870de06915f319937c0beb2c629f08b1e4f85
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 15 13:28:52 2023 +0200
+
+    uncertainty logic
+
+diff --git a/error.py b/error.py
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/measures.py b/measures.py
+new file mode 100644
+index 0000000..8e3a93f
+--- /dev/null
++++ b/measures.py
+@@ -0,0 +1,13 @@
++
++def is_possible(epsilon, deltas, signals, times):
++    # assume epsilons[signal] is bound for signal
++    # assume deltas[signal][time] is bound for signal at time
++    clauses = []
++    for signal in signals:
++        clauses.append('(declare-const o' + str(signal) + ' Real)')
++        clauses.append('(assert (and (<= (- ' + str(epsilon[signal]) + ') o' + str(signal) + ') (<= o' + str(signal) + ' ' + str(epsilon[signal]) + ')))')
++        for time in times:
++            clauses.append('(declare-const e' + str(signal) + str(time) + ' Real)')
++            clauses.append('(assert (and (<= (- ' + str(deltas[signal][time]) + ') xe' + str(signal) + str(time) + ') (<= e' + str(signal) + str(time) + ' ' + str(deltas[signal][time]) + ')))')
++
++    return clauses
+
+commit 2024cd6dc920c9d28080448e635d776b2f19d60c
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jun 14 15:55:29 2023 +0200
+
+    trajectory logic
+
+diff --git a/compiler.py b/compiler.py
+index e062399..9e98673 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -228,12 +228,13 @@ def test_stl_to_smtlib():
+         # ("¬(x ∧ y)"), 
+         # ("⊤ ∨ x"), 
+         # ("⊥ ∧ x"), 
++        # ("⊥ ∧ ⊥"), 
+         # ("¬(⊤ ∨ x)"),
+         # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+-        ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++        # ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+-        ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
++        # ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+         # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
+         # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
+@@ -241,13 +242,13 @@ def test_stl_to_smtlib():
+         # ("3x + 2y ≥ 9"),
+         # ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
+         # ("2x ≥ 6 ∧ 3y ≥ 9"),
+-        # ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥")
++        # ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥"),
++        ("1 ≥ 2")
+     ]
+ 
+     for stl in tests:
+         smtlib = stl_to_smtlib(stl)
+         print(stl)
+-        # smtlib = smtlib.replace('(and  (>= z1 2))', '').replace('(and  (>= c2 2))', '')
+         print(smtlib)
+         transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+         # print(f'{smtlib} turns into {transformed}\n')
+diff --git a/error.py b/error.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/trajectory.py b/trajectory.py
+new file mode 100644
+index 0000000..678227e
+--- /dev/null
++++ b/trajectory.py
+@@ -0,0 +1,39 @@
++import compiler
++import tseitin
++
++def is_state_valuation(sigma):
++    if not isinstance(sigma, dict):
++        return False
++    
++    for key, value in sigma.items():
++        if not isinstance(key, str) or not key[:-1].isalpha() or not key[-1].isdigit():
++            return False
++        
++        if not isinstance(value, (int, float)):
++            return False
++            
++    return True
++
++def is_trajectory(trajectory):
++    # check if trajectory is mapping from natural numbers to states
++    if not isinstance(trajectory, dict):
++        return False
++    
++    for key, value in trajectory.items():
++        if not isinstance(key, int):
++            return False
++        
++        if not is_state_valuation(value):
++            return False
++        
++    return True
++
++def satisfaction(trajectory, time, formula):
++    if not is_trajectory(trajectory):
++        return False
++    state = trajectory[time]
++    # replace variables at time t with their values
++    smt = compiler.stl_to_smtlib(formula)
++    for signal, real in state.items():
++        smt = smt.replace(signal, str(real))
++    
+\ No newline at end of file
+diff --git a/tseitin.py b/tseitin.py
+index 0462cd6..7899a0a 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -132,5 +132,8 @@ def evaluate(transformed, mapping):
+         # interpret the assignment
+         interpretation = interpret_model(assignment, mapping)
+         print("Interpretation: ", interpretation)
++
++        return True
+     else:
+         print("UNSAT")
++        return False
+
+commit 0b8d409c80c7b51bf135976ada1fe5d53b350686
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue Jun 13 16:13:58 2023 +0200
+
+    figured it out, now just need to plug (a2 + b2) back into p9 - close #8
+
+diff --git a/compiler.py b/compiler.py
+index f2a8ac6..e062399 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -220,16 +220,16 @@ def translate(node):
+ 
+ def test_stl_to_smtlib():
+     tests = [
+-        ("⊤"), 
+-        ("⊥"), 
+-        ("¬x"), 
+-        ("x ∨ y"), 
+-        ("x ∧ ¬y"), 
+-        ("¬(x ∧ y)"), 
+-        ("⊤ ∨ x"), 
+-        ("⊥ ∧ x"), 
+-        ("¬(⊤ ∨ x)"),
+-        ("¬(⊥ ∧ x)"),
++        # ("⊤"), 
++        # ("⊥"), 
++        # ("¬x"), 
++        # ("x ∨ y"), 
++        # ("x ∧ ¬y"), 
++        # ("¬(x ∧ y)"), 
++        # ("⊤ ∨ x"), 
++        # ("⊥ ∧ x"), 
++        # ("¬(⊤ ∨ x)"),
++        # ("¬(⊥ ∧ x)"),
+         # ("⊤ U[0, 5] ⊥"),
+         ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+@@ -247,12 +247,13 @@ def test_stl_to_smtlib():
+     for stl in tests:
+         smtlib = stl_to_smtlib(stl)
+         print(stl)
++        # smtlib = smtlib.replace('(and  (>= z1 2))', '').replace('(and  (>= c2 2))', '')
+         print(smtlib)
+-        transformed = tseitin.tseitin_to_cnf(smtlib)
++        transformed, mapping = tseitin.tseitin_to_cnf(smtlib)
+         # print(f'{smtlib} turns into {transformed}\n')
+         
+         print(transformed)
+-        tseitin.evaluate(transformed)
++        tseitin.evaluate(transformed, mapping)
+ 
+         print()
+ 
+diff --git a/tseitin.py b/tseitin.py
+index 971b4fc..0462cd6 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -71,7 +71,7 @@ def tseitin_to_cnf(formula):
+             mapping['clauses'].append([var, form])
+             mapping['clauses'].append([f'not {var}', f'not {form}'])
+ 
+-    return mapping['clauses']
++    return mapping['clauses'], mapping
+ 
+ 
+ def cnf_to_z3(cnf_list):
+@@ -81,7 +81,6 @@ def cnf_to_z3(cnf_list):
+     def get_var(lit):
+         nonlocal vars, z3_vars
+         var = lit.replace('not ', '')
+-        var = re.sub(r'\(([^)]+)\)', r'\1', var)  # Remove parentheses if present
+         if var not in vars:
+             vars[var] = Bool(var)
+             z3_vars[var] = vars[var]
+@@ -95,30 +94,43 @@ def cnf_to_z3(cnf_list):
+                 new_clause.append(True)
+             elif lit == 'false':
+                 new_clause.append(False)
+-            elif lit.startswith('(and'):
+-                lits = lit[lit.index(' ') + 1:-1].split(' ')
+-                new_clause.extend([get_var(sublit) for sublit in lits if sublit != 'false'])
+-                for i in range(len(lits) - 1):
+-                    for j in range(i + 1, len(lits)):
+-                        clauses.append(Or(Not(get_var(lits[i])), Not(get_var(lits[j]))))
+-                    clauses.append(Or(Not(get_var(lits[i])), get_var(lits[i + 1])))
+-            elif lit.startswith('(or'):
+-                lits = lit[lit.index(' ') + 1:-1].split(' ')
+-                new_clause.append(Or(*[get_var(sublit) for sublit in lits]))
++            elif isinstance(lit, list):  # Treat list as a conjunction
++                subclause = []
++                for sublit in lit:
++                    subclause.append(get_var(sublit))
++                new_clause.append(And(*subclause))
+             else:
+                 new_clause.append(get_var(lit))
+         clauses.append(Or(*new_clause))
+ 
+     return vars, And(*clauses)
+ 
+-def evaluate(transformed):
++
++def interpret_model(model, mapping):
++    interpretation = {}
++    for variable in model:
++        if variable in mapping:
++            p_variable = mapping[variable]
++            value = model[variable]
++            interpretation[p_variable] = {
++                'value': value,
++                'original_variable': variable
++            }
++    return interpretation
++
++
++def evaluate(transformed, mapping):
+     vars, clauses = cnf_to_z3(transformed)
+     solver = Solver()
+     solver.add(clauses)
+ 
+     if solver.check() == sat:
+         model = solver.model()
+-        assignment = {str(var): model[var] for var in vars.values()}
+-        print(assignment)
++        assignment = {str(var): model.evaluate(var) for var in vars.values()}
++        print("Tseitin assignment: ", assignment)
++
++        # interpret the assignment
++        interpretation = interpret_model(assignment, mapping)
++        print("Interpretation: ", interpretation)
+     else:
+-        print("UNSAT")
+\ No newline at end of file
++        print("UNSAT")
+
+commit 130d25b9f04891547de4e42cf96c1d44116811d4
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue Jun 13 11:36:28 2023 +0200
+
+    screw until statements
+
+diff --git a/compiler.py b/compiler.py
+index d744bcf..f2a8ac6 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -233,7 +233,7 @@ def test_stl_to_smtlib():
+         # ("⊤ U[0, 5] ⊥"),
+         ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+-        # ("(a + b ≥ 4) U[2, 5] (c ≥ 2)"),
++        ("(a + b ≥ 4) U[2, 4] (c ≥ 2)"),
+         # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+         # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
+         # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
+@@ -246,34 +246,14 @@ def test_stl_to_smtlib():
+ 
+     for stl in tests:
+         smtlib = stl_to_smtlib(stl)
+-        transformed = tseitin.tseitin_to_cnf(smtlib)
+-        # print(f'{smtlib} turns into {transformed}\n')
+-
+-
+-
+-
+         print(stl)
+         print(smtlib)
++        transformed = tseitin.tseitin_to_cnf(smtlib)
++        # print(f'{smtlib} turns into {transformed}\n')
++        
+         print(transformed)
+-        vars, clauses = tseitin.cnf_to_z3(transformed)
+-        solver = Solver()
+-        solver.add(clauses)
+-
+-        if solver.check() == sat:
+-            model = solver.model()
+-            assignment = {str(var): (model[var] if 'not ' not in str(var) else not model[var]) for var in vars.values()}
+-            print(assignment)
+-        else:
+-            print("UNSAT")
++        tseitin.evaluate(transformed)
+ 
+         print()
+ 
+-
+-
+-
+-
+-        # forz3 = tseitin.cnf_to_smt(transformed)
+-        # print(forz3)
+-        # print()
+-
+ test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/tseitin.py b/tseitin.py
+index 7dbca7e..971b4fc 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -33,7 +33,6 @@ def tseitin_transformation(formula, mapping, counter):
+     if formula in ['true', 'false', '⊤', '⊥']:
+         return formula, counter
+     if formula[0] != '(':
+-        # Don't create a new variable if the formula is a literal
+         return formula, counter
+     operation, operands = decompose(formula)
+     new_operands = []
+@@ -42,8 +41,6 @@ def tseitin_transformation(formula, mapping, counter):
+         counter = new_counter
+         new_operands.append(new_formula)
+     new_formula = f'({operation} {" ".join(new_operands)})'
+-
+-    # Introduce new variable for sub-formula
+     counter += 1
+     new_variable = f'p{counter}'
+     mapping[new_variable] = new_formula
+@@ -52,20 +49,16 @@ def tseitin_transformation(formula, mapping, counter):
+         mapping['clauses'].append([new_variable, new_operands[0]])
+         mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
+     elif operation == 'and':
+-        clause = [new_variable] + [f'not {operand}' for operand in new_operands]
+-        mapping['clauses'].append(clause)
+-        for i in range(len(new_operands)):
+-            mapping['clauses'].append([f'not {new_variable}', new_operands[i]])
+-            mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[i]}', new_variable])
++        for operand in new_operands:
++            mapping['clauses'].append([f'not {new_variable}', operand])
++        mapping['clauses'].append([new_variable] + [f'not {operand}' for operand in new_operands])
+     elif operation == 'or':
+-        mapping['clauses'].append([f'not {new_variable}'] + new_operands)
+         for operand in new_operands:
+             mapping['clauses'].append([new_variable, f'not {operand}'])
++        mapping['clauses'].append([f'not {new_variable}'] + new_operands)
+ 
+     return new_variable, counter
+ 
+-
+-
+ def tseitin_to_cnf(formula):
+     mapping = {'clauses': []}
+     counter = 0
+@@ -81,21 +74,6 @@ def tseitin_to_cnf(formula):
+     return mapping['clauses']
+ 
+ 
+-
+-def cnf_to_smt(cnf):
+-    # create a list to hold disjunctions
+-    disjunctions = []
+-    for clause in cnf:
+-        # wrap each literal in the clause with parentheses
+-        clause_strs = ['(' + literal + ')' for literal in clause]
+-        # join literals in the clause with 'or', wrap it into parentheses to represent a disjunction
+-        disjunction = '(or ' + ' '.join(clause_strs) + ')'
+-        disjunctions.append(disjunction)
+-    # join all disjunctions with 'and', wrap it into parentheses to represent a conjunction
+-    conjunction = '(and ' + ' '.join(disjunctions) + ')'
+-    return conjunction
+-
+-
+ def cnf_to_z3(cnf_list):
+     vars = {}
+     z3_vars = {}
+@@ -119,7 +97,11 @@ def cnf_to_z3(cnf_list):
+                 new_clause.append(False)
+             elif lit.startswith('(and'):
+                 lits = lit[lit.index(' ') + 1:-1].split(' ')
+-                new_clause.extend([get_var(sublit) for sublit in lits])
++                new_clause.extend([get_var(sublit) for sublit in lits if sublit != 'false'])
++                for i in range(len(lits) - 1):
++                    for j in range(i + 1, len(lits)):
++                        clauses.append(Or(Not(get_var(lits[i])), Not(get_var(lits[j]))))
++                    clauses.append(Or(Not(get_var(lits[i])), get_var(lits[i + 1])))
+             elif lit.startswith('(or'):
+                 lits = lit[lit.index(' ') + 1:-1].split(' ')
+                 new_clause.append(Or(*[get_var(sublit) for sublit in lits]))
+@@ -128,3 +110,15 @@ def cnf_to_z3(cnf_list):
+         clauses.append(Or(*new_clause))
+ 
+     return vars, And(*clauses)
++
++def evaluate(transformed):
++    vars, clauses = cnf_to_z3(transformed)
++    solver = Solver()
++    solver.add(clauses)
++
++    if solver.check() == sat:
++        model = solver.model()
++        assignment = {str(var): model[var] for var in vars.values()}
++        print(assignment)
++    else:
++        print("UNSAT")
+\ No newline at end of file
+
+commit cfbb5bf6c2a1e6bcc612423bb99b113b93a85f31
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu Jun 8 17:13:43 2023 +0200
+
+    getting closer
+
+diff --git a/compiler.py b/compiler.py
+index 06121c7..d744bcf 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -1,6 +1,8 @@
+ import re
+ from z3 import *
+ import tseitin
++from z3 import Solver, parse_smt2_string
++import pycosat
+ 
+ def stl_to_smtlib(stl_code):
+     # Convert STL to tokens
+@@ -221,28 +223,57 @@ def test_stl_to_smtlib():
+         ("⊤"), 
+         ("⊥"), 
+         ("¬x"), 
++        ("x ∨ y"), 
++        ("x ∧ ¬y"), 
+         ("¬(x ∧ y)"), 
+         ("⊤ ∨ x"), 
+         ("⊥ ∧ x"), 
+         ("¬(⊤ ∨ x)"),
+         ("¬(⊥ ∧ x)"),
+-        ("⊤ U[0, 5] ⊥"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
+-        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
+-        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
+-        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
+-        ("2.95x ≥ 9"),
+-        ("3x + 2y ≥ 9"),
+-        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
+-        ("2x ≥ 6 ∧ 3y ≥ 9"),
+-        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥")
++        # ("⊤ U[0, 5] ⊥"),
++        ("(x ≥ 3) U[1, 3] (z ≥ 2)"),
++        # ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
++        # ("(a + b ≥ 4) U[2, 5] (c ≥ 2)"),
++        # ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
++        # ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
++        # ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
++        # ("2.95x ≥ 9"),
++        # ("3x + 2y ≥ 9"),
++        # ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
++        # ("2x ≥ 6 ∧ 3y ≥ 9"),
++        # ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥")
+     ]
+ 
+     for stl in tests:
+         smtlib = stl_to_smtlib(stl)
+         transformed = tseitin.tseitin_to_cnf(smtlib)
+-        print(f'{stl} turns into {smtlib} turns into {transformed}\n')
+-        
++        # print(f'{smtlib} turns into {transformed}\n')
++
++
++
++
++        print(stl)
++        print(smtlib)
++        print(transformed)
++        vars, clauses = tseitin.cnf_to_z3(transformed)
++        solver = Solver()
++        solver.add(clauses)
++
++        if solver.check() == sat:
++            model = solver.model()
++            assignment = {str(var): (model[var] if 'not ' not in str(var) else not model[var]) for var in vars.values()}
++            print(assignment)
++        else:
++            print("UNSAT")
++
++        print()
++
++
++
++
++
++        # forz3 = tseitin.cnf_to_smt(transformed)
++        # print(forz3)
++        # print()
+ 
+ test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/tseitin.py b/tseitin.py
+index 88b07bb..7dbca7e 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -1,4 +1,5 @@
+ import re
++from z3 import *
+ 
+ def decompose(formula):
+     operation = None
+@@ -33,7 +34,6 @@ def tseitin_transformation(formula, mapping, counter):
+         return formula, counter
+     if formula[0] != '(':
+         # Don't create a new variable if the formula is a literal
+-        mapping[formula] = formula
+         return formula, counter
+     operation, operands = decompose(formula)
+     new_operands = []
+@@ -42,28 +42,30 @@ def tseitin_transformation(formula, mapping, counter):
+         counter = new_counter
+         new_operands.append(new_formula)
+     new_formula = f'({operation} {" ".join(new_operands)})'
+-    if operation not in ['not', 'and', 'or', '>=', '*', '+']:
+-        raise ValueError(f'Unexpected operation {operation}')
+-    
++
+     # Introduce new variable for sub-formula
+     counter += 1
+     new_variable = f'p{counter}'
++    mapping[new_variable] = new_formula
+ 
+-    if operation in ['not', 'and', 'or']:
+-        if operation == 'not':
+-            mapping['clauses'].append([f'{new_variable}', new_operands[0]])
+-            mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
+-        else:
+-            clause = [f'not {new_variable}'] + new_operands
+-            mapping['clauses'].append(clause)
+-            for operand in new_operands:
+-                mapping['clauses'].append([new_variable, f'not {operand}'])
+-    elif operation in ['>=', '*', '+']:
+-        # For non-boolean operations, simply map the new_variable directly to the new_formula
+-        mapping[new_variable] = new_formula
++    if operation == 'not':
++        mapping['clauses'].append([new_variable, new_operands[0]])
++        mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
++    elif operation == 'and':
++        clause = [new_variable] + [f'not {operand}' for operand in new_operands]
++        mapping['clauses'].append(clause)
++        for i in range(len(new_operands)):
++            mapping['clauses'].append([f'not {new_variable}', new_operands[i]])
++            mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[i]}', new_variable])
++    elif operation == 'or':
++        mapping['clauses'].append([f'not {new_variable}'] + new_operands)
++        for operand in new_operands:
++            mapping['clauses'].append([new_variable, f'not {operand}'])
+ 
+     return new_variable, counter
+ 
++
++
+ def tseitin_to_cnf(formula):
+     mapping = {'clauses': []}
+     counter = 0
+@@ -73,7 +75,56 @@ def tseitin_to_cnf(formula):
+     # Add back the non-boolean operations
+     for var, form in mapping.items():
+         if var not in ['clauses', new_formula] and form[0] == '(':
+-            mapping['clauses'].append([f'{var}', form])
++            mapping['clauses'].append([var, form])
+             mapping['clauses'].append([f'not {var}', f'not {form}'])
+ 
+     return mapping['clauses']
++
++
++
++def cnf_to_smt(cnf):
++    # create a list to hold disjunctions
++    disjunctions = []
++    for clause in cnf:
++        # wrap each literal in the clause with parentheses
++        clause_strs = ['(' + literal + ')' for literal in clause]
++        # join literals in the clause with 'or', wrap it into parentheses to represent a disjunction
++        disjunction = '(or ' + ' '.join(clause_strs) + ')'
++        disjunctions.append(disjunction)
++    # join all disjunctions with 'and', wrap it into parentheses to represent a conjunction
++    conjunction = '(and ' + ' '.join(disjunctions) + ')'
++    return conjunction
++
++
++def cnf_to_z3(cnf_list):
++    vars = {}
++    z3_vars = {}
++
++    def get_var(lit):
++        nonlocal vars, z3_vars
++        var = lit.replace('not ', '')
++        var = re.sub(r'\(([^)]+)\)', r'\1', var)  # Remove parentheses if present
++        if var not in vars:
++            vars[var] = Bool(var)
++            z3_vars[var] = vars[var]
++        return (Not(z3_vars[var]) if 'not ' in lit else z3_vars[var])
++
++    clauses = []
++    for clause in cnf_list:
++        new_clause = []
++        for lit in clause:
++            if lit == 'true':
++                new_clause.append(True)
++            elif lit == 'false':
++                new_clause.append(False)
++            elif lit.startswith('(and'):
++                lits = lit[lit.index(' ') + 1:-1].split(' ')
++                new_clause.extend([get_var(sublit) for sublit in lits])
++            elif lit.startswith('(or'):
++                lits = lit[lit.index(' ') + 1:-1].split(' ')
++                new_clause.append(Or(*[get_var(sublit) for sublit in lits]))
++            else:
++                new_clause.append(get_var(lit))
++        clauses.append(Or(*new_clause))
++
++    return vars, And(*clauses)
+
+commit 9ee9867f4bed30bc8db0f3c19014a1ec6e002d41
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jun 7 15:14:39 2023 +0200
+
+    im dizzy but i think i have a working tseitin transformation - close #5
+
+diff --git a/tseitin.py b/tseitin.py
+index c43a26e..88b07bb 100644
+--- a/tseitin.py
++++ b/tseitin.py
+@@ -42,11 +42,38 @@ def tseitin_transformation(formula, mapping, counter):
+         counter = new_counter
+         new_operands.append(new_formula)
+     new_formula = f'({operation} {" ".join(new_operands)})'
+-    return new_formula, counter
++    if operation not in ['not', 'and', 'or', '>=', '*', '+']:
++        raise ValueError(f'Unexpected operation {operation}')
++    
++    # Introduce new variable for sub-formula
++    counter += 1
++    new_variable = f'p{counter}'
++
++    if operation in ['not', 'and', 'or']:
++        if operation == 'not':
++            mapping['clauses'].append([f'{new_variable}', new_operands[0]])
++            mapping['clauses'].append([f'not {new_variable}', f'not {new_operands[0]}'])
++        else:
++            clause = [f'not {new_variable}'] + new_operands
++            mapping['clauses'].append(clause)
++            for operand in new_operands:
++                mapping['clauses'].append([new_variable, f'not {operand}'])
++    elif operation in ['>=', '*', '+']:
++        # For non-boolean operations, simply map the new_variable directly to the new_formula
++        mapping[new_variable] = new_formula
++
++    return new_variable, counter
+ 
+ def tseitin_to_cnf(formula):
+     mapping = {'clauses': []}
+     counter = 0
+     new_formula, counter = tseitin_transformation(formula, mapping, counter)
+     mapping['clauses'].append([new_formula])
++
++    # Add back the non-boolean operations
++    for var, form in mapping.items():
++        if var not in ['clauses', new_formula] and form[0] == '(':
++            mapping['clauses'].append([f'{var}', form])
++            mapping['clauses'].append([f'not {var}', f'not {form}'])
++
+     return mapping['clauses']
+
+commit a6a9ba7c6bec69f052a018e504dcd5c3c9b2a77f
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed Jun 7 14:59:11 2023 +0200
+
+    temporal phi - close #7
+
+diff --git a/compiler.py b/compiler.py
+index ff0d002..06121c7 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -145,6 +145,22 @@ def parse(tokens):
+     # Start parsing
+     return parse_expression()
+ 
++def replace_vars_with_time(expr, time):
++    ignore_list = ['true', 'false', 'and', 'or', 'not']  # List of terms to ignore
++
++    # Find all words consisting only of alphabetical characters
++    words = re.findall('[a-zA-Z]+', expr)
++
++    for word in words:
++        # Skip if word is in the ignore list
++        if word in ignore_list:
++            continue
++
++        # Replace each occurrence of the word in the expression with the word followed by the time value
++        expr = re.sub(r'\b' + word + r'\b', word + str(time), expr)
++
++    return expr
++
+ def translate(node):
+     kind = node[0]
+     if kind == 'NUMBER':
+@@ -194,8 +210,8 @@ def translate(node):
+ 
+         or_expr = []
+         for k in range(start_time, end_time + 1):
+-            and_expr = [f'{first_condition_code.replace("x", f"x{l}")}' for l in range(start_time, k)]
+-            or_expr.append(f'(and {" ".join(and_expr)} {second_condition_code.replace("x", f"x{k}").replace("y", f"y{k}")})')
++            and_expr = [replace_vars_with_time(first_condition_code, l) for l in range(start_time, k)]
++            or_expr.append(f'(and {" ".join(and_expr)} {replace_vars_with_time(second_condition_code, k)})')
+ 
+         return f'(or {" ".join(or_expr)})'
+ 
+
+commit 7f7e26d9f440af382237c9805e5557c986318bdc
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Fri Jun 2 13:21:59 2023 +0200
+
+    working? tseitin but must edit stl to smt
+
+diff --git a/compiler.py b/compiler.py
+index 3d4b3fc..ff0d002 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -1,5 +1,6 @@
+ import re
+ from z3 import *
++import tseitin
+ 
+ def stl_to_smtlib(stl_code):
+     # Convert STL to tokens
+@@ -199,34 +200,33 @@ def translate(node):
+         return f'(or {" ".join(or_expr)})'
+ 
+ 
+-
+-
+ def test_stl_to_smtlib():
+     tests = [
+-        ("⊤", "true"), 
+-        ("⊥", "false"), 
+-        ("¬x", "(not x)"), 
+-        ("¬(x ∧ y)", "(not (and x y))"), 
+-        ("⊤ ∨ x", "(or true x)"), 
+-        ("⊥ ∧ x", "(and false x)"), 
+-        ("¬(⊤ ∨ x)", "(not (or true x))"),
+-        ("¬(⊥ ∧ x)", "(not (and false x))"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (>= x 3))) (>= y 5)))"),
+-        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (<= l k) (>= (add a b) 4))) (>= c 2)))"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
+-        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
+-        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (not (>= y 5)) true))) false))"),
+-        ("2.95x ≥ 9", "(>= (* 2.95 x) 9)"),
+-        ("3x + 2y ≥ 9", "(>= (add (* 3 x) (* 2 y)) 9)"),
+-        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (<= l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
+-        ("2x ≥ 6 ∧ 3y ≥ 9", "(and (>= (* 2 x) 6) (>= (* 3 y) 9))"),
+-        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
++        ("⊤"), 
++        ("⊥"), 
++        ("¬x"), 
++        ("¬(x ∧ y)"), 
++        ("⊤ ∨ x"), 
++        ("⊥ ∧ x"), 
++        ("¬(⊤ ∨ x)"),
++        ("¬(⊥ ∧ x)"),
++        ("⊤ U[0, 5] ⊥"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5)"),
++        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)"),
++        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)"),
++        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥"),
++        ("2.95x ≥ 9"),
++        ("3x + 2y ≥ 9"),
++        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)"),
++        ("2x ≥ 6 ∧ 3y ≥ 9"),
++        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥")
+     ]
+ 
+-    for stl, expected_smtlib in tests:
++    for stl in tests:
+         smtlib = stl_to_smtlib(stl)
+-        assert smtlib == expected_smtlib, f'Expected {expected_smtlib}, but got {smtlib}'
++        transformed = tseitin.tseitin_to_cnf(smtlib)
++        print(f'{stl} turns into {smtlib} turns into {transformed}\n')
+         
+-    print("All tests passed!")
+ 
+ test_stl_to_smtlib()
+\ No newline at end of file
+diff --git a/tseitin.py b/tseitin.py
+new file mode 100644
+index 0000000..c43a26e
+--- /dev/null
++++ b/tseitin.py
+@@ -0,0 +1,52 @@
++import re
++
++def decompose(formula):
++    operation = None
++    operands = []
++    depth = 0
++    operand = ""
++    for char in formula:
++        if char == '(':
++            if depth > 0:
++                operand += char
++            depth += 1
++        elif char == ')':
++            depth -= 1
++            if depth > 0:
++                operand += char
++            elif operand:
++                operands.append(operand.strip())
++                operand = ""
++        elif char == ' ' and depth == 1:
++            if operand:
++                if operation is None:
++                    operation = operand
++                else:
++                    operands.append(operand)
++                operand = ""
++        elif depth > 0:
++            operand += char
++    return operation, operands
++
++def tseitin_transformation(formula, mapping, counter):
++    if formula in ['true', 'false', '⊤', '⊥']:
++        return formula, counter
++    if formula[0] != '(':
++        # Don't create a new variable if the formula is a literal
++        mapping[formula] = formula
++        return formula, counter
++    operation, operands = decompose(formula)
++    new_operands = []
++    for operand in operands:
++        new_formula, new_counter = tseitin_transformation(operand, mapping, counter)
++        counter = new_counter
++        new_operands.append(new_formula)
++    new_formula = f'({operation} {" ".join(new_operands)})'
++    return new_formula, counter
++
++def tseitin_to_cnf(formula):
++    mapping = {'clauses': []}
++    counter = 0
++    new_formula, counter = tseitin_transformation(formula, mapping, counter)
++    mapping['clauses'].append([new_formula])
++    return mapping['clauses']
+
+commit c208125ada59f0ed48527e38cddf75685d6d9d14
+Author: Robert S <94999004+roberthsheng@users.noreply.github.com>
+Date:   Tue May 30 15:07:38 2023 +0200
+
+    poster upload
+
+diff --git a/PIREPoster_Sheng.pdf b/PIREPoster_Sheng.pdf
+new file mode 100644
+index 0000000..31f6728
+Binary files /dev/null and b/PIREPoster_Sheng.pdf differ
+
+commit c8fcff146a4a6bff7d52b7284398b1370be7464a
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Fri May 26 11:08:16 2023 +0200
+
+    correct expansion of quantifiers
+
+diff --git a/compiler.py b/compiler.py
+index c45265e..3d4b3fc 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -157,7 +157,7 @@ def translate(node):
+         _, left, right = node
+         left_code = translate(left)
+         right_code = translate(right)
+-        return f'(add {left_code} {right_code})'
++        return f'(+ {left_code} {right_code})'
+     elif kind == 'GEQ':
+         _, left, right = node
+         left_code = translate(left)
+@@ -185,17 +185,20 @@ def translate(node):
+         expr_code = translate(expr)
+         return f'(not {expr_code})'
+     elif kind == 'UNTIL':
+-        _, start_time, end_time, first_condition, second_condition = node
++        start_time, end_time, first_condition, second_condition = node[1:]
+         start_time = int(translate(start_time))
+         end_time = int(translate(end_time))
+         first_condition_code = translate(first_condition)
+         second_condition_code = translate(second_condition)
+-        condition_list = []
+-        for k in range(start_time, end_time+1):
+-            for l in range(0, k+1):
+-                condition_list.append(f"(= l {l} {first_condition_code})")
+-        conditions = " ".join(condition_list)
+-        return f'(and (exists ((k Int)) (and (>= k {start_time}) (<= k {end_time}))) (and {conditions}) {second_condition_code})'
++
++        or_expr = []
++        for k in range(start_time, end_time + 1):
++            and_expr = [f'{first_condition_code.replace("x", f"x{l}")}' for l in range(start_time, k)]
++            or_expr.append(f'(and {" ".join(and_expr)} {second_condition_code.replace("x", f"x{k}").replace("y", f"y{k}")})')
++
++        return f'(or {" ".join(or_expr)})'
++
++
+ 
+ 
+ def test_stl_to_smtlib():
+
+commit bb0c44b8e9f2d9aa3fd20335713fa5b2988c7eda
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Thu May 25 13:51:41 2023 +0200
+
+    forall expansion
+
+diff --git a/compiler.py b/compiler.py
+index dc26c77..c45265e 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -185,12 +185,17 @@ def translate(node):
+         expr_code = translate(expr)
+         return f'(not {expr_code})'
+     elif kind == 'UNTIL':
+-        start_time, end_time, first_condition, second_condition = node[1:]
+-        start_time_code = translate(start_time)
+-        end_time_code = translate(end_time)
++        _, start_time, end_time, first_condition, second_condition = node
++        start_time = int(translate(start_time))
++        end_time = int(translate(end_time))
+         first_condition_code = translate(first_condition)
+         second_condition_code = translate(second_condition)
+-        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (<= l k) {first_condition_code})) {second_condition_code}))'
++        condition_list = []
++        for k in range(start_time, end_time+1):
++            for l in range(0, k+1):
++                condition_list.append(f"(= l {l} {first_condition_code})")
++        conditions = " ".join(condition_list)
++        return f'(and (exists ((k Int)) (and (>= k {start_time}) (<= k {end_time}))) (and {conditions}) {second_condition_code})'
+ 
+ 
+ def test_stl_to_smtlib():
+
+commit 5a0e73eba56dc7fddae6f0fc6a73aa5f421dfef8
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed May 24 14:05:02 2023 +0200
+
+    UNTIL logic fix
+
+diff --git a/compiler.py b/compiler.py
+index 4924119..dc26c77 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -190,7 +190,7 @@ def translate(node):
+         end_time_code = translate(end_time)
+         first_condition_code = translate(first_condition)
+         second_condition_code = translate(second_condition)
+-        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {first_condition_code})) {second_condition_code}))'
++        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (<= l k) {first_condition_code})) {second_condition_code}))'
+ 
+ 
+ def test_stl_to_smtlib():
+@@ -203,16 +203,16 @@ def test_stl_to_smtlib():
+         ("⊥ ∧ x", "(and false x)"), 
+         ("¬(⊤ ∨ x)", "(not (or true x))"),
+         ("¬(⊥ ∧ x)", "(not (and false x))"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5)))"),
+-        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2)))"),
+-        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
+-        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
+-        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (>= x 3))) (>= y 5)))"),
++        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (<= l k) (>= (add a b) 4))) (>= c 2)))"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
++        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
++        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (not (>= y 5)) true))) false))"),
+         ("2.95x ≥ 9", "(>= (* 2.95 x) 9)"),
+         ("3x + 2y ≥ 9", "(>= (add (* 3 x) (* 2 y)) 9)"),
+-        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
++        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (<= l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
+         ("2x ≥ 6 ∧ 3y ≥ 9", "(and (>= (* 2 x) 6) (>= (* 3 y) 9))"),
+-        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
++        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (<= l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit b19dfda6284255cf61e5318eb0efb277aa0c7616
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed May 24 11:51:24 2023 +0200
+
+    bounds in 0, N - close #4
+
+diff --git a/compiler.py b/compiler.py
+index d2bc2e0..4924119 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -26,6 +26,8 @@ def tokenize(expr):
+         ('LSQB', r'\['),  
+         ('RSQB', r'\]'),  
+         ('COMMA', r','),  
++        ('LOWER', r'(?<=\[)\d{1,6}(?=,)'),
++        ('UPPER', r'(?<=,)\d{1,6}(?=\])'),
+         ('WHITESPACE', r'\s+'),  
+     ]
+ 
+@@ -50,11 +52,12 @@ def parse(tokens):
+     # Consume the next token from the stream
+     def consume(expected_kind):
+         nonlocal index
+-        if peek()[0] == expected_kind:
++        kind, value = peek()
++        if kind == expected_kind or (kind == 'NUMBER' and expected_kind in ('LOWER', 'UPPER')):
+             index += 1
+-            return tokens[index - 1]
++            return kind, value
+         else:
+-            raise ValueError(f'Expected {expected_kind} but got {peek()[0]}')
++            raise ValueError(f'Expected {expected_kind} but got {kind}')
+ 
+     # Parse an atomic expression
+     def parse_atom():
+@@ -120,9 +123,9 @@ def parse(tokens):
+         consume('UNTIL')
+ 
+         consume('LSQB')
+-        start_time = parse_term()
++        start_time = consume('LOWER')
+         consume('COMMA')
+-        end_time = parse_term()
++        end_time = consume('UPPER')
+         consume('RSQB')
+ 
+         second_condition = parse_expression()
+
+commit 019167b933160665448d5b90d000ab8ec3696db5
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed May 24 11:26:57 2023 +0200
+
+    fixed issue with UNTIL parsing
+
+diff --git a/compiler.py b/compiler.py
+index 3eab291..d2bc2e0 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -12,7 +12,7 @@ def stl_to_smtlib(stl_code):
+ 
+ def tokenize(expr):
+     TOKEN_SPECIFICATION = [
+-        ('COEFF', r'\b\d+(\.\d+)?[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # Coefficient with variable, now allows rational numbers
++        ('COEFF', r'\b\d+(\.\d+)?[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),
+         ('NUMBER', r'\b\d+(\.\d*)?\b'),  
+         ('VAR', r'[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # VAR cannot be U
+         ('UNTIL', r'U'),  
+@@ -116,25 +116,27 @@ def parse(tokens):
+         return left
+ 
+     # Parse until
+-    def parse_until():
++    def parse_until(first_condition):
++        consume('UNTIL')
++
+         consume('LSQB')
+         start_time = parse_term()
+         consume('COMMA')
+         end_time = parse_term()
+         consume('RSQB')
+ 
+-        first_condition = parse_expression()
+-        consume('UNTIL')
+         second_condition = parse_expression()
+ 
+         return ('UNTIL', start_time, end_time, first_condition, second_condition)
+ 
++
+     # Parse an expression
+     def parse_expression():
+-        if peek()[0] == 'LSQB':
+-            return parse_until()
++        left = parse_boolean()
++        if peek()[0] == 'UNTIL':
++            return parse_until(left)
+         else:
+-            return parse_boolean()
++            return left
+ 
+     # Start parsing
+     return parse_expression()
+@@ -198,16 +200,16 @@ def test_stl_to_smtlib():
+         ("⊥ ∧ x", "(and false x)"), 
+         ("¬(⊤ ∨ x)", "(not (or true x))"),
+         ("¬(⊥ ∧ x)", "(not (and false x))"),
+-        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5)))"),
+-        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2)))"),
+-        ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
+-        ("[0, 10] (y ≥ 5) ∧ (z ≥ 2) U (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
+-        ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5)))"),
++        ("(a + b ≥ 4) U[2, 5] (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2)))"),
++        ("(x ≥ 3) U[0, 10] (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
++        ("(y ≥ 5) ∧ (z ≥ 2) U[0, 10] (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
++        ("¬(y ≥ 5) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))"),
+         ("2.95x ≥ 9", "(>= (* 2.95 x) 9)"),
+         ("3x + 2y ≥ 9", "(>= (add (* 3 x) (* 2 y)) 9)"),
+-        ("[2, 5] (2a + b ≥ 4) U (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
++        ("(2a + b ≥ 4) U[2, 5] (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
+         ("2x ≥ 6 ∧ 3y ≥ 9", "(and (>= (* 2 x) 6) (>= (* 3 y) 9))"),
+-        ("[0, 10] ¬(4.5y ≥ 20) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
++        ("¬(4.5y ≥ 20) ∧ ⊤ U[0, 10] ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit ab1a06548755fec4b569091481c7cd3d6464b3e6
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Wed May 24 09:34:48 2023 +0200
+
+    added support for linear combinations of rational-coeff signals
+
+diff --git a/compiler.py b/compiler.py
+index ff7a32a..3eab291 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -12,7 +12,8 @@ def stl_to_smtlib(stl_code):
+ 
+ def tokenize(expr):
+     TOKEN_SPECIFICATION = [
+-        ('NUMBER', r'\d+(\.\d*)?'),  
++        ('COEFF', r'\b\d+(\.\d+)?[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # Coefficient with variable, now allows rational numbers
++        ('NUMBER', r'\b\d+(\.\d*)?\b'),  
+         ('VAR', r'[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # VAR cannot be U
+         ('UNTIL', r'U'),  
+         ('BOOL_OP', r'[∨∧]'),  
+@@ -64,6 +65,10 @@ def parse(tokens):
+         elif kind == 'NUMBER':
+             consume('NUMBER')
+             return ('NUMBER', int(value) if value.isdigit() else float(value))
++        elif kind == 'COEFF':
++            consume('COEFF')
++            coeff, var = value[:-1], value[-1]
++            return ('COEFF', (int(coeff) if coeff.isdigit() else float(coeff), var))
+         elif kind == 'LB':
+             consume('LB')
+             expr = parse_expression()
+@@ -140,6 +145,9 @@ def translate(node):
+         return str(node[1])
+     elif kind == 'VAR':
+         return node[1]
++    elif kind == 'COEFF':
++        coeff, var = node[1]
++        return f'(* {coeff} {var})'
+     elif kind == 'PLUS':
+         _, left, right = node
+         left_code = translate(left)
+@@ -194,7 +202,12 @@ def test_stl_to_smtlib():
+         ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2)))"),
+         ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
+         ("[0, 10] (y ≥ 5) ∧ (z ≥ 2) U (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
+-        ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))")
++        ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))"),
++        ("2.95x ≥ 9", "(>= (* 2.95 x) 9)"),
++        ("3x + 2y ≥ 9", "(>= (add (* 3 x) (* 2 y)) 9)"),
++        ("[2, 5] (2a + b ≥ 4) U (3c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add (* 2 a) b) 4))) (>= (* 3 c) 2)))"),
++        ("2x ≥ 6 ∧ 3y ≥ 9", "(and (>= (* 2 x) 6) (>= (* 3 y) 9))"),
++        ("[0, 10] ¬(4.5y ≥ 20) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= (* 4.5 y) 20)) true))) false))")
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit 8a64a25a0b942491bc0bcca2a2c42a01588cd863
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue May 23 13:37:45 2023 +0200
+
+    fixed parenthetical issue
+
+diff --git a/compiler.py b/compiler.py
+index 9525efb..ff7a32a 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -49,7 +49,6 @@ def parse(tokens):
+     # Consume the next token from the stream
+     def consume(expected_kind):
+         nonlocal index
+-        print(peek())
+         if peek()[0] == expected_kind:
+             index += 1
+             return tokens[index - 1]
+@@ -70,16 +69,16 @@ def parse(tokens):
+             expr = parse_expression()
+             consume('RB')
+             return expr
+-        elif kind == 'NEG':
+-            consume('NEG')
+-            expr = parse_expression()
+-            return ('NOT', expr)
+         elif kind == 'ABS':
+             consume('ABS')
+             if value == '⊤':
+                 return ('BOOL_OP', '⊤')
+             elif value == '⊥':
+                 return ('BOOL_OP', '⊥')
++        elif kind == 'NEG':
++            consume('NEG')
++            atom = parse_atom()
++            return ('NOT', atom)
+         else:
+             raise ValueError(f'Unexpected {kind}')
+ 
+@@ -178,7 +177,7 @@ def translate(node):
+         end_time_code = translate(end_time)
+         first_condition_code = translate(first_condition)
+         second_condition_code = translate(second_condition)
+-        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {first_condition_code})) {second_condition_code})'
++        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {first_condition_code})) {second_condition_code}))'
+ 
+ 
+ def test_stl_to_smtlib():
+@@ -191,11 +190,11 @@ def test_stl_to_smtlib():
+         ("⊥ ∧ x", "(and false x)"), 
+         ("¬(⊤ ∨ x)", "(not (or true x))"),
+         ("¬(⊥ ∧ x)", "(not (and false x))"),
+-        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5))"),
+-        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2))"),
+-        ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2)))"),
+-        ("[0, 10] (y ≥ 5) ∧ (z ≥ 2) U (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3))"),
+-        # ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (not (>= y 5)))) false)"),
++        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5)))"),
++        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2)))"),
++        ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2))))"),
++        ("[0, 10] (y ≥ 5) ∧ (z ≥ 2) U (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3)))"),
++        ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (not (>= y 5)) true))) false))")
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit e5f024a6a8577d07ab311855d7400b351450e286
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue May 23 11:40:20 2023 +0200
+
+    added support for absolutes and negation, need to fix precedence
+
+diff --git a/compiler.py b/compiler.py
+index 9acbfd1..9525efb 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -15,7 +15,8 @@ def tokenize(expr):
+         ('NUMBER', r'\d+(\.\d*)?'),  
+         ('VAR', r'[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # VAR cannot be U
+         ('UNTIL', r'U'),  
+-        ('BOOL_OP', r'[∨∧⊤⊥]'),  
++        ('BOOL_OP', r'[∨∧]'),  
++        ('ABS', r'[⊤⊥]'),
+         ('NEG', r'¬'),  
+         ('GEQ', r'≥'),  
+         ('PLUS', r'\+'),
+@@ -69,6 +70,16 @@ def parse(tokens):
+             expr = parse_expression()
+             consume('RB')
+             return expr
++        elif kind == 'NEG':
++            consume('NEG')
++            expr = parse_expression()
++            return ('NOT', expr)
++        elif kind == 'ABS':
++            consume('ABS')
++            if value == '⊤':
++                return ('BOOL_OP', '⊤')
++            elif value == '⊥':
++                return ('BOOL_OP', '⊥')
+         else:
+             raise ValueError(f'Unexpected {kind}')
+ 
+@@ -83,9 +94,6 @@ def parse(tokens):
+ 
+     # Parse an inequality
+     def parse_inequality():
+-        kind, _ = peek()
+-        if kind == 'EOF':
+-            return None
+         left = parse_term()
+         if peek()[0] == 'GEQ':
+             consume('GEQ')
+@@ -103,48 +111,29 @@ def parse(tokens):
+             left = ('BOOL_OP', op, left, right)
+         return left
+ 
++    # Parse until
+     def parse_until():
+-        # Parse the time bounds
+         consume('LSQB')
+         start_time = parse_term()
+         consume('COMMA')
+         end_time = parse_term()
+         consume('RSQB')
+ 
+-        # Parse the first condition (this should be the condition to hold until the second condition is met)
+         first_condition = parse_expression()
+-        
+-        # Parse the UNTIL operator
+         consume('UNTIL')
+-
+-        # Parse the second condition (this should be the condition that is met)
+         second_condition = parse_expression()
+ 
+         return ('UNTIL', start_time, end_time, first_condition, second_condition)
+ 
+-
++    # Parse an expression
+     def parse_expression():
+-        if peek()[0] == 'NOT':
+-            consume('NOT')
+-            consume('LB')
+-            child = parse_expression()
+-            consume('RB')
+-            return ('NOT', child)
+-        elif peek()[0] == 'AND':
+-            consume('AND')
+-            consume('LB')
+-            left = parse_expression()
+-            consume('COMMA')
+-            right = parse_expression()
+-            consume('RB')
+-            return ('AND', left, right)
+-        elif peek()[0] == 'UNTIL':
++        if peek()[0] == 'LSQB':
+             return parse_until()
+         else:
+             return parse_boolean()
+ 
+     # Start parsing
+-    return parse_until()
++    return parse_expression()
+ 
+ def translate(node):
+     kind = node[0]
+@@ -152,22 +141,21 @@ def translate(node):
+         return str(node[1])
+     elif kind == 'VAR':
+         return node[1]
+-    elif kind == 'OP':
+-        op, left, right = node[1:]
++    elif kind == 'PLUS':
++        _, left, right = node
+         left_code = translate(left)
+         right_code = translate(right)
+-        return f'({op} {left_code} {right_code})'
++        return f'(add {left_code} {right_code})'
+     elif kind == 'GEQ':
+         _, left, right = node
+         left_code = translate(left)
+         right_code = translate(right)
+         return f'(>= {left_code} {right_code})'
+-    elif kind == 'PLUS':
+-        _, left, right = node
+-        left_code = translate(left)
+-        right_code = translate(right)
+-        return f'(add {left_code} {right_code})'
+     elif kind == 'BOOL_OP':
++        if node[1] == '⊤':
++            return 'true'
++        elif node[1] == '⊥':
++            return 'false'
+         op, left, right = node[1:]
+         left_code = translate(left)
+         right_code = translate(right)
+@@ -180,20 +168,34 @@ def translate(node):
+         elif op == '⊥':
+             return 'false'
+         return f'({op} {left_code} {right_code})'
++    elif kind == 'NOT':
++        _, expr = node
++        expr_code = translate(expr)
++        return f'(not {expr_code})'
+     elif kind == 'UNTIL':
+-        start_time, end_time, left, right = node[1:]
++        start_time, end_time, first_condition, second_condition = node[1:]
+         start_time_code = translate(start_time)
+         end_time_code = translate(end_time)
+-        left_code = translate(left)
+-        right_code = translate(right)
+-        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {left_code})) {right_code})'
++        first_condition_code = translate(first_condition)
++        second_condition_code = translate(second_condition)
++        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {first_condition_code})) {second_condition_code})'
+ 
+ 
+ def test_stl_to_smtlib():
+     tests = [
++        ("⊤", "true"), 
++        ("⊥", "false"), 
++        ("¬x", "(not x)"), 
++        ("¬(x ∧ y)", "(not (and x y))"), 
++        ("⊤ ∨ x", "(or true x)"), 
++        ("⊥ ∧ x", "(and false x)"), 
++        ("¬(⊤ ∨ x)", "(not (or true x))"),
++        ("¬(⊥ ∧ x)", "(not (and false x))"),
+         ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5))"),
+         ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2))"),
+         ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2)))"),
++        ("[0, 10] (y ≥ 5) ∧ (z ≥ 2) U (x ≥ 3)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 5) (>= z 2)))) (>= x 3))"),
++        # ("[0, 10] ¬(y ≥ 5) ∧ ⊤ U ⊥", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (not (>= y 5)))) false)"),
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit 29b53cd063dd8d3e62f89de8aa19cca2b4daf84d
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue May 23 10:20:30 2023 +0200
+
+    fixed test cases, working as expected (?)
+
+diff --git a/compiler.py b/compiler.py
+index abab961..9acbfd1 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -43,7 +43,7 @@ def parse(tokens):
+         if index + n < len(tokens):
+             return tokens[index + n]
+         else:
+-            return None
++            return ('EOF', None)
+ 
+     # Consume the next token from the stream
+     def consume(expected_kind):
+@@ -83,6 +83,9 @@ def parse(tokens):
+ 
+     # Parse an inequality
+     def parse_inequality():
++        kind, _ = peek()
++        if kind == 'EOF':
++            return None
+         left = parse_term()
+         if peek()[0] == 'GEQ':
+             consume('GEQ')
+@@ -109,20 +112,17 @@ def parse(tokens):
+         consume('RSQB')
+ 
+         # Parse the first condition (this should be the condition to hold until the second condition is met)
+-        consume('LB')
+-        second_condition = parse_expression() # This condition will be used as the second condition (U)
+-        consume('RB')
+-
++        first_condition = parse_expression()
++        
+         # Parse the UNTIL operator
+         consume('UNTIL')
+ 
+         # Parse the second condition (this should be the condition that is met)
+-        consume('LB')
+-        first_condition = parse_expression() # This condition will be used as the first condition
+-        consume('RB')
++        second_condition = parse_expression()
+ 
+         return ('UNTIL', start_time, end_time, first_condition, second_condition)
+ 
++
+     def parse_expression():
+         if peek()[0] == 'NOT':
+             consume('NOT')
+@@ -191,9 +191,9 @@ def translate(node):
+ 
+ def test_stl_to_smtlib():
+     tests = [
+-        # ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= y 5))) (>= x 3))"),
+-        # ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= c 2))) (>= (add a b) 4))"),
+-        ("[0, 7] (x ≥ 1) U (y ≥ 1 ∧ z ≥ 1)", "(exists ((k Int)) (and (>= k 0) (<= k 7) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 1) (>= z 1))) (>= x 1)))")
++        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (>= y 5))"),
++        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= (add a b) 4))) (>= c 2))"),
++        ("[0, 10] (x ≥ 3) U (y ≥ 5) ∧ (z ≥ 2)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= x 3))) (and (>= y 5) (>= z 2)))"),
+     ]
+ 
+     for stl, expected_smtlib in tests:
+
+commit f8289a47ce6501cb7c5bcf875913ef3ba5d44e2b
+Author: roberthsheng <roberthsheng@gmail.com>
+Date:   Tue May 23 09:07:38 2023 +0200
+
+    added inequality precedence rules, support for and, false
+
+diff --git a/compiler.py b/compiler.py
+index 96255bf..abab961 100644
+--- a/compiler.py
++++ b/compiler.py
+@@ -15,7 +15,7 @@ def tokenize(expr):
+         ('NUMBER', r'\d+(\.\d*)?'),  
+         ('VAR', r'[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # VAR cannot be U
+         ('UNTIL', r'U'),  
+-        ('BOOL_OP', r'[∨⊤]'),  
++        ('BOOL_OP', r'[∨∧⊤⊥]'),  
+         ('NEG', r'¬'),  
+         ('GEQ', r'≥'),  
+         ('PLUS', r'\+'),
+@@ -60,12 +60,7 @@ def parse(tokens):
+         kind, value = peek()
+         if kind == 'VAR':
+             consume('VAR')
+-            if peek()[0] == 'GEQ':
+-                consume('GEQ')
+-                right = parse_term()
+-                return ('GEQ', ('VAR', value), right)
+-            else:
+-                return ('VAR', value)
++            return ('VAR', value)
+         elif kind == 'NUMBER':
+             consume('NUMBER')
+             return ('NUMBER', int(value) if value.isdigit() else float(value))
+@@ -89,7 +84,12 @@ def parse(tokens):
+     # Parse an inequality
+     def parse_inequality():
+         left = parse_term()
+-        return left
++        if peek()[0] == 'GEQ':
++            consume('GEQ')
++            right = parse_term()
++            return ('GEQ', left, right)
++        else:
++            return left
+ 
+     # Parse a boolean expression
+     def parse_boolean():
+@@ -143,8 +143,6 @@ def parse(tokens):
+         else:
+             return parse_boolean()
+ 
+-
+-
+     # Start parsing
+     return parse_until()
+ 
+@@ -193,8 +191,8 @@ def translate(node):
+ 
+ def test_stl_to_smtlib():
+     tests = [
+-        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= y 5))) (>= x 3))"),
+-        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= c 2))) (>= (add a b) 4))"),
++        # ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= y 5))) (>= x 3))"),
++        # ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= c 2))) (>= (add a b) 4))"),
+         ("[0, 7] (x ≥ 1) U (y ≥ 1 ∧ z ≥ 1)", "(exists ((k Int)) (and (>= k 0) (<= k 7) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 1) (>= z 1))) (>= x 1)))")
+     ]
+ 
+
+commit be4896e166661b3f51b3b664bdfc5b56c21dd598
+Author: Robert S <94999004+roberthsheng@users.noreply.github.com>
+Date:   Tue May 23 08:52:33 2023 +0200
+
+    Passing test case 1
+
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..8de0326
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,8 @@
++Install dependencies:
++```
++pip install z3-solver
++```
++Run the program:
++```
++python3 compiler.py
++```
+\ No newline at end of file
+diff --git a/compiler.py b/compiler.py
+new file mode 100644
+index 0000000..96255bf
+--- /dev/null
++++ b/compiler.py
+@@ -0,0 +1,207 @@
++import re
++from z3 import *
++
++def stl_to_smtlib(stl_code):
++    # Convert STL to tokens
++    tokens = list(tokenize(stl_code))
++    # Convert tokens to parse tree
++    parse_tree = parse(tokens)
++    # Convert parse tree to SMT-LIB
++    smtlib_code = translate(parse_tree)
++    return smtlib_code
++
++def tokenize(expr):
++    TOKEN_SPECIFICATION = [
++        ('NUMBER', r'\d+(\.\d*)?'),  
++        ('VAR', r'[a-zA-Z_][a-zA-Z_0-9]*\b(?<!U)'),  # VAR cannot be U
++        ('UNTIL', r'U'),  
++        ('BOOL_OP', r'[∨⊤]'),  
++        ('NEG', r'¬'),  
++        ('GEQ', r'≥'),  
++        ('PLUS', r'\+'),
++        ('LB', r'\('),  
++        ('RB', r'\)'),  
++        ('LSQB', r'\['),  
++        ('RSQB', r'\]'),  
++        ('COMMA', r','),  
++        ('WHITESPACE', r'\s+'),  
++    ]
++
++    tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in TOKEN_SPECIFICATION)
++    for mo in re.finditer(tok_regex, expr):
++        kind = mo.lastgroup
++        if kind != 'WHITESPACE':
++            yield kind, mo.group(kind)
++
++def parse(tokens):
++    # Cursor
++    index = 0
++
++    # Peek at the next token in the stream
++    def peek(n = 0):
++        nonlocal index
++        if index + n < len(tokens):
++            return tokens[index + n]
++        else:
++            return None
++
++    # Consume the next token from the stream
++    def consume(expected_kind):
++        nonlocal index
++        print(peek())
++        if peek()[0] == expected_kind:
++            index += 1
++            return tokens[index - 1]
++        else:
++            raise ValueError(f'Expected {expected_kind} but got {peek()[0]}')
++
++    # Parse an atomic expression
++    def parse_atom():
++        kind, value = peek()
++        if kind == 'VAR':
++            consume('VAR')
++            if peek()[0] == 'GEQ':
++                consume('GEQ')
++                right = parse_term()
++                return ('GEQ', ('VAR', value), right)
++            else:
++                return ('VAR', value)
++        elif kind == 'NUMBER':
++            consume('NUMBER')
++            return ('NUMBER', int(value) if value.isdigit() else float(value))
++        elif kind == 'LB':
++            consume('LB')
++            expr = parse_expression()
++            consume('RB')
++            return expr
++        else:
++            raise ValueError(f'Unexpected {kind}')
++
++    # Parse a term
++    def parse_term():
++        left = parse_atom()
++        while peek() and peek()[0] == 'PLUS':
++            op = consume('PLUS')[1]
++            right = parse_atom()
++            left = ('PLUS', left, right)
++        return left
++
++    # Parse an inequality
++    def parse_inequality():
++        left = parse_term()
++        return left
++
++    # Parse a boolean expression
++    def parse_boolean():
++        left = parse_inequality()
++        while peek() and peek()[0] == 'BOOL_OP':
++            op = consume('BOOL_OP')[1]
++            right = parse_inequality()
++            left = ('BOOL_OP', op, left, right)
++        return left
++
++    def parse_until():
++        # Parse the time bounds
++        consume('LSQB')
++        start_time = parse_term()
++        consume('COMMA')
++        end_time = parse_term()
++        consume('RSQB')
++
++        # Parse the first condition (this should be the condition to hold until the second condition is met)
++        consume('LB')
++        second_condition = parse_expression() # This condition will be used as the second condition (U)
++        consume('RB')
++
++        # Parse the UNTIL operator
++        consume('UNTIL')
++
++        # Parse the second condition (this should be the condition that is met)
++        consume('LB')
++        first_condition = parse_expression() # This condition will be used as the first condition
++        consume('RB')
++
++        return ('UNTIL', start_time, end_time, first_condition, second_condition)
++
++    def parse_expression():
++        if peek()[0] == 'NOT':
++            consume('NOT')
++            consume('LB')
++            child = parse_expression()
++            consume('RB')
++            return ('NOT', child)
++        elif peek()[0] == 'AND':
++            consume('AND')
++            consume('LB')
++            left = parse_expression()
++            consume('COMMA')
++            right = parse_expression()
++            consume('RB')
++            return ('AND', left, right)
++        elif peek()[0] == 'UNTIL':
++            return parse_until()
++        else:
++            return parse_boolean()
++
++
++
++    # Start parsing
++    return parse_until()
++
++def translate(node):
++    kind = node[0]
++    if kind == 'NUMBER':
++        return str(node[1])
++    elif kind == 'VAR':
++        return node[1]
++    elif kind == 'OP':
++        op, left, right = node[1:]
++        left_code = translate(left)
++        right_code = translate(right)
++        return f'({op} {left_code} {right_code})'
++    elif kind == 'GEQ':
++        _, left, right = node
++        left_code = translate(left)
++        right_code = translate(right)
++        return f'(>= {left_code} {right_code})'
++    elif kind == 'PLUS':
++        _, left, right = node
++        left_code = translate(left)
++        right_code = translate(right)
++        return f'(add {left_code} {right_code})'
++    elif kind == 'BOOL_OP':
++        op, left, right = node[1:]
++        left_code = translate(left)
++        right_code = translate(right)
++        if op == '∨':
++            op = 'or'
++        elif op == '∧':
++            op = 'and'
++        elif op == '⊤':
++            return 'true'
++        elif op == '⊥':
++            return 'false'
++        return f'({op} {left_code} {right_code})'
++    elif kind == 'UNTIL':
++        start_time, end_time, left, right = node[1:]
++        start_time_code = translate(start_time)
++        end_time_code = translate(end_time)
++        left_code = translate(left)
++        right_code = translate(right)
++        return f'(exists ((k Int)) (and (>= k {start_time_code}) (<= k {end_time_code}) (forall ((l Int)) (and (>= l 0) (< l k) {left_code})) {right_code})'
++
++
++def test_stl_to_smtlib():
++    tests = [
++        ("[0, 10] (x ≥ 3) U (y ≥ 5)", "(exists ((k Int)) (and (>= k 0) (<= k 10) (forall ((l Int)) (and (>= l 0) (< l k) (>= y 5))) (>= x 3))"),
++        ("[2, 5] (a + b ≥ 4) U (c ≥ 2)", "(exists ((k Int)) (and (>= k 2) (<= k 5) (forall ((l Int)) (and (>= l 0) (< l k) (>= c 2))) (>= (add a b) 4))"),
++        ("[0, 7] (x ≥ 1) U (y ≥ 1 ∧ z ≥ 1)", "(exists ((k Int)) (and (>= k 0) (<= k 7) (forall ((l Int)) (and (>= l 0) (< l k) (and (>= y 1) (>= z 1))) (>= x 1)))")
++    ]
++
++    for stl, expected_smtlib in tests:
++        smtlib = stl_to_smtlib(stl)
++        assert smtlib == expected_smtlib, f'Expected {expected_smtlib}, but got {smtlib}'
++        
++    print("All tests passed!")
++
++test_stl_to_smtlib()
+\ No newline at end of file
